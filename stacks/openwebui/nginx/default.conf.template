@@ -1,0 +1,20 @@
+server {
+  listen 8000;
+  server_name _;
+
+  # Bearer check (regex from OPENAI_BEARER_PATTERN)
+  set $block 1;
+  if ($http_authorization ~* "Bearer ${OPENAI_BEARER_PATTERN}") { set $block 0; }
+  if ($block) { return 401; }
+
+  # CORS (adjust origins as needed)
+  add_header Access-Control-Allow-Origin * always;
+  add_header Access-Control-Allow-Headers Authorization,Content-Type,OpenAI-Organization,OpenAI-Project always;
+  if ($request_method = OPTIONS) { return 204; }
+
+  location /v1/ {
+    proxy_pass ${OLLAMA_BASE_URL}/v1/;
+    proxy_set_header Host $host;
+    proxy_buffering off;
+  }
+}

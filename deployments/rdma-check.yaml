@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rdma-check
+spec:
+  restartPolicy: Never
+  containers:
+    - name: rdma
+      image: nvidia/cuda:12.6.2-runtime-ubuntu24.04
+      securityContext:
+        runAsUser: 0
+      command: ["/bin/bash","-lc"]
+      args:
+        - |
+          set -e
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends rdma-core perftest ca-certificates iproute2 && \
+          echo "Devices under /dev/infiniband:" && ls -l /dev/infiniband || true
+          echo "ibv_devices:" && ibv_devices || true
+          echo "ibv_devinfo:" && ibv_devinfo || true
+          echo "Done."
+      resources:
+        limits:
+          rdma/rdma_shared_device_a: 63   # <-- MUST MATCH the key you saw in step 1

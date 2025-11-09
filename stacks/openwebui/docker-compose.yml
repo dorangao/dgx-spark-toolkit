@@ -1,0 +1,66 @@
+networks:
+  stack:
+
+volumes:
+  ollama:
+  webui:
+
+services:
+  ollama:
+    image: ${IMAGE_OLLAMA:-ollama/ollama:latest}
+    container_name: ${NAME_OLLAMA:-ollama}
+    restart: unless-stopped
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama:/root/.ollama
+    networks: [stack]
+    deploy:
+      resources: {}
+    gpus: "all"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  open-webui:
+    image: ${IMAGE_WEBUI:-ghcr.io/open-webui/open-webui:latest}
+    container_name: ${NAME_WEBUI:-open-webui}
+    restart: unless-stopped
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    ports:
+      - "${WEBUI_PORT:-12000}:8080"
+    volumes:
+      - webui:/app/backend/data
+    networks: [stack]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 2s
+      retries: 20
+
+  gateway:
+    image: ${IMAGE_NGINX:-nginx:alpine}
+    container_name: ${NAME_GATEWAY:-llm-gw}
+    restart: unless-stopped
+    ports:
+      - "${OPENAI_PORT:-8000}:8000"
+    environment:
+      - NGINX_ENVSUBST_TEMPLATE_DIR=/etc/nginx/templates
+      - NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/conf.d
+      - NGINX_ENVSUBST_TEMPLATE_SUFFIX=.template
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OPENAI_BEARER_PATTERN=${OPENAI_BEARER_PATTERN:-sk-local-[A-Za-z0-9]+}
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    networks: [stack]
+    depends_on:
+      - ollama
