@@ -1,16 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+load_network_overrides() {
+    local -a candidates=()
+    [[ -n "${DGX_SPARK_NETWORK_CONFIG:-}" ]] && candidates+=("$DGX_SPARK_NETWORK_CONFIG")
+    candidates+=("$HOME/.config/dgx-spark-toolkit/network.env" "$HOME/.dgx-spark-network" "$HOME/dgx-spark-network.env")
+    for cfg in "${candidates[@]}"; do
+        [[ -f "$cfg" ]] || continue
+        # shellcheck disable=SC1090
+        source "$cfg"
+    done
+}
+load_network_overrides
+
 # ==== cluster + env (edit if needed) ====
-LAUNCHER_LOCAL_IP="10.10.10.1"     # spark-2959
-HOSTS="10.10.10.1:1,10.10.10.2:1"  # one GPU per node
-IFACES="enp1s0f0np0,enP2p1s0f0np0" # dual functions on same port
-HCAS="rocep1s0f0,roceP2p1s0f0"
-GID_INDEX=2
-BINARY="$HOME/workspace/nccl-tests/build/all_reduce_perf"
-MIN_BYTES="64M"
-MAX_BYTES="512M"
-GPUS_PER_NODE=1
+FABRIC_CTRL_IP="${FABRIC_CTRL_IP:-${CONTROL_PLANE_FABRIC_IP:-10.10.10.1}}"
+FABRIC_WORKER_IP="${FABRIC_WORKER_IP:-${WORKER_NODE_IP:-10.10.10.2}}"
+LAUNCHER_LOCAL_IP="${LAUNCHER_LOCAL_IP:-$FABRIC_CTRL_IP}"     # spark-2959 fabric NIC
+HOSTS="${HOSTS:-${LAUNCHER_LOCAL_IP}:1,${FABRIC_WORKER_IP}:1}"   # one GPU per node
+IFACES="${IFACES:-enp1s0f0np0,enP2p1s0f0np0}"                  # dual functions on same port
+HCAS="${HCAS:-rocep1s0f0,roceP2p1s0f0}"
+GID_INDEX="${GID_INDEX:-2}"
+BINARY="${BINARY:-$HOME/workspace/nccl-tests/build/all_reduce_perf}"
+MIN_BYTES="${MIN_BYTES:-64M}"
+MAX_BYTES="${MAX_BYTES:-512M}"
+GPUS_PER_NODE="${GPUS_PER_NODE:-1}"
 # ========================================
 
 # Ensure jumbo MTU (optional safety)

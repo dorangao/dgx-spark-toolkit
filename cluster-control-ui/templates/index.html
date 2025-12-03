@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cluster Control UI</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel-bg: #ffffff;
+      --panel-muted: #f8fafc;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #5f6b7c;
+      --accent: #2563eb;
+      --accent-soft: #dbeafe;
+      --success: #1b5e20;
+      --danger: #b71c1c;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 2rem;
+      background: radial-gradient(circle at top, rgba(37,99,235,0.12), transparent 45%), #0f172a;
+      color: var(--text);
+    }
+
+    .app-shell {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .card {
+      background: var(--panel-bg);
+      border-radius: 18px;
+      padding: 1.75rem;
+      box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+      margin-bottom: 1.5rem;
+    }
+
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 2rem;
+      background: linear-gradient(135deg, #ffffff, #eef2ff);
+    }
+
+    .hero h1 {
+      margin: 0 0 0.75rem;
+      font-size: 2.1rem;
+    }
+
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 0.75rem;
+      color: #64748b;
+      margin: 0 0 0.5rem;
+    }
+
+    .hero-actions {
+      min-width: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      align-items: flex-start;
+    }
+
+    .status-pill {
+      padding: 0.35rem 0.9rem;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+
+    .status-pill.online {
+      background: rgba(27, 94, 32, 0.12);
+      color: var(--success);
+    }
+
+    .status-pill.offline {
+      background: rgba(183, 28, 28, 0.12);
+      color: var(--danger);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .actions button {
+      padding: 0.85rem 1.6rem;
+      font-size: 1rem;
+      border: none;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+
+    .actions button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .actions button:not(:disabled):hover {
+      transform: translateY(-1px);
+    }
+
+    .start { background: var(--success); color: #fff; }
+    .stop { background: var(--danger); color: #fff; }
+    .check { background: var(--accent); color: #fff; }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 14px;
+      padding: 1.25rem;
+      border: 1px solid rgba(226, 232, 240, 0.7);
+    }
+
+    .stat-card strong {
+      display: block;
+      font-size: 1.5rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .tabbed-panel {
+      padding: 0;
+    }
+
+    .tab-bar {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.5rem 0.5rem 0;
+      flex-wrap: wrap;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: 0;
+      padding: 0.75rem 1.25rem;
+      font-weight: 600;
+      border-radius: 999px;
+      cursor: pointer;
+      color: var(--muted);
+    }
+
+    .tab-btn.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .tab-content {
+      display: none;
+      padding: 1.75rem;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .panel-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+
+    .panel-grid.overview-grid {
+      grid-template-columns: minmax(230px, 1fr) minmax(380px, 2.2fr) minmax(260px, 1.1fr);
+      align-items: stretch;
+    }
+
+    .panel-card {
+      background: var(--panel-muted);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      padding: 1.25rem;
+    }
+
+    .panel-card.fill-height {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-card.fill-height .panel-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      margin-top: 1rem;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: baseline;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .flash-stack {
+      margin-bottom: 1.5rem;
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .flash {
+      padding: 0.85rem 1rem;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+
+    .flash.success { background: rgba(27, 94, 32, 0.1); color: var(--success); }
+    .flash.error { background: rgba(183, 28, 28, 0.1); color: var(--danger); }
+
+    .history-entry {
+      border-bottom: 1px solid rgba(226, 232, 240, 0.7);
+      padding: 1rem 0;
+    }
+
+    .history-entry:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    pre {
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 1rem;
+      border-radius: 10px;
+      overflow-x: auto;
+      font-size: 0.9rem;
+    }
+
+    #live-output {
+      max-height: 360px;
+      min-height: 260px;
+      flex: 1;
+      margin: 0;
+    }
+
+    code {
+      background: rgba(15, 23, 42, 0.08);
+      padding: 0.25rem 0.4rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      display: inline-block;
+      margin-top: 0.25rem;
+      word-break: break-all;
+    }
+
+    .script-list {
+      display: grid;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .tracking-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .tracking-controls label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-weight: bold;
+    }
+
+    .host-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .host-card {
+      flex: 1 1 280px;
+      border: 1px solid #eee;
+      border-radius: 12px;
+      padding: 1rem;
+      background: #fff;
+    }
+
+    .host-card h3 {
+      margin: 0 0 0.2rem;
+    }
+
+    .error {
+      color: var(--danger);
+      font-weight: 600;
+    }
+
+    .host-meta {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .metric-row {
+      margin: 0.2rem 0;
+      font-size: 0.95rem;
+    }
+
+    .gpu-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    .gpu-table th,
+    .gpu-table td {
+      text-align: left;
+      padding: 0.25rem;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .chart-container {
+      margin-top: 0.5rem;
+      min-height: 160px;
+    }
+
+    canvas { max-width: 100%; }
+
+    @media (max-width: 1024px) {
+      .panel-grid.overview-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 768px) {
+      body { padding: 1rem; }
+      .hero { flex-direction: column; }
+      .hero-actions { width: 100%; }
+      .actions { width: 100%; }
+      .actions button { flex: 1 1 150px; }
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hero card">
+      <div>
+        <p class="eyebrow">DGX Spark Toolkit</p>
+        <h1>Cluster Control UI</h1>
+        <p>Launch or shut down your Spark cluster and monitor health without leaving this dashboard.</p>
+      </div>
+      <div class="hero-actions">
+        <div class="status-pill {{ 'online' if running else 'offline' }}">
+          {{ 'Cluster Running' if running else 'Cluster Idle' }}
+        </div>
+        <div class="actions">
+          <button class="start action-btn" data-action="start" {% if running %}disabled{% endif %}>Start Cluster</button>
+          <button class="stop action-btn" data-action="stop" {% if running %}disabled{% endif %}>Stop Cluster</button>
+          <button class="check action-btn" data-action="check">Check Cluster</button>
+        </div>
+        <p class="muted">Commands execute with sudo: <strong>{{ 'Yes' if use_sudo else 'No' }}</strong></p>
+        <p class="muted">Auto health checks: <strong>{{ (auto_check_seconds ~ 's interval') if auto_check_seconds else 'Disabled' }}</strong></p>
+        {% if running %}
+        <p class="muted"><strong>Command currently running: {{ history[0].label if history else 'in-progress' }}</strong></p>
+        {% endif %}
+      </div>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-stack">
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    {% set latest = latest_run %}
+    <section class="stat-grid">
+      <article class="stat-card">
+        <small class="muted">Cluster status</small>
+        <strong>{{ 'Running' if running else 'Idle' }}</strong>
+        <small class="muted">{{ 'Stop job in progress' if running else 'Ready for next run' }}</small>
+      </article>
+      <article class="stat-card">
+        <small class="muted">Last event</small>
+        <strong>{{ latest_action.label if latest_action else 'None yet' }}</strong>
+        <small class="muted">
+          {% if latest_action %}
+            Finished {{ latest_action.finished }}
+          {% else %}
+            Awaiting first execution
+          {% endif %}
+        </small>
+      </article>
+      <article class="stat-card">
+        <small class="muted">Last health check</small>
+        {% if latest_check %}
+          {% set healthy = (latest_check.returncode == '0') %}
+          <strong>{{ 'Healthy' if healthy else 'Check failed' }}</strong>
+          <small class="muted">Completed {{ latest_check.finished }} (exit {{ latest_check.returncode }})</small>
+        {% else %}
+          <strong>Never</strong>
+          <small class="muted">Run the checker or enable auto health checks.</small>
+        {% endif %}
+      </article>
+      <article class="stat-card">
+        <small class="muted">Managed nodes</small>
+        <strong>{{ status_hosts|length }}</strong>
+        <small class="muted">{{ status_hosts|join(', ') }}</small>
+      </article>
+      <article class="stat-card">
+        <small class="muted">History entries</small>
+        <strong>{{ history|length }}</strong>
+        <small class="muted">Stored in memory this session</small>
+      </article>
+    </section>
+
+    <section class="tabbed-panel card">
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab-target="overview">Overview</button>
+        {% if status_hosts %}
+          <button class="tab-btn" data-tab-target="utilization">Node Utilization</button>
+        {% endif %}
+        <button class="tab-btn" data-tab-target="activity">Recent Activity</button>
+      </div>
+
+      <div class="tab-content active" id="tab-overview">
+        <div class="panel-grid overview-grid">
+          <div class="panel-card fill-height">
+            <div class="panel-head">
+              <h3>Operations</h3>
+              <span class="muted">Paths executed on start/stop</span>
+            </div>
+            <div class="panel-body">
+              <div class="script-list">
+                <div>
+                  <span class="muted">Start script</span>
+                  <code>{{ start_script }}</code>
+                </div>
+                <div>
+                  <span class="muted">Stop script</span>
+                  <code>{{ stop_script }}</code>
+                </div>
+                <div>
+                  <span class="muted">Check script</span>
+                  <code>{{ check_script }}</code>
+                </div>
+              </div>
+              <p class="muted" style="margin-top:1rem;">Use the controls above to dispatch cluster actions. Status updates and logs will stream below.</p>
+              {% if auto_check_seconds %}
+                <p class="muted">Automatic cluster checks run every {{ auto_check_seconds }} seconds.</p>
+              {% endif %}
+            </div>
+          </div>
+          <div class="panel-card fill-height" id="live-card">
+            <div class="panel-head">
+              <h3>Live Output</h3>
+              <span class="muted">Streaming command output</span>
+            </div>
+            <div class="panel-body">
+              <pre id="live-output">Awaiting command output. Start, stop, or check the cluster to stream logs.</pre>
+            </div>
+          </div>
+          <div class="panel-card fill-height">
+            <div class="panel-head">
+              <h3>Latest Run</h3>
+            </div>
+            <div class="panel-body">
+              {% if latest %}
+                <p><strong>{{ latest.label }}</strong> exited with {{ latest.returncode }}.</p>
+                <p class="muted">{{ latest.started }} → {{ latest.finished }}</p>
+                <p class="muted"><em>{{ latest.command }}</em></p>
+                {% if latest.stdout %}
+                  <h4>Output sample</h4>
+                  <pre>{{ latest.stdout|truncate(600, True) }}</pre>
+                {% endif %}
+                {% if latest.stderr %}
+                  <h4>Errors</h4>
+                  <pre>{{ latest.stderr|truncate(400, True) }}</pre>
+                {% endif %}
+              {% else %}
+                <p>No commands executed yet.</p>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {% if status_hosts %}
+      <div class="tab-content" id="tab-utilization">
+        <div class="panel-card">
+          <div class="panel-head">
+            <h3>Node Utilization</h3>
+            <span class="muted">Monitoring {{ status_hosts|length }} hosts</span>
+          </div>
+          <div class="tracking-controls">
+            <label>
+              <input type="checkbox" id="tracking-toggle">
+              Enable performance tracking
+            </label>
+            <small class="muted">Toggles live SSH polling (default off).</small>
+          </div>
+          <div id="host-metrics">
+            <p class="muted">Loading metrics for {{ status_hosts|join(', ') }}...</p>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="tab-content" id="tab-activity">
+        <div class="panel-card">
+          <div class="panel-head">
+            <h3>Recent Activity</h3>
+            <span class="muted">Full log of the latest runs</span>
+          </div>
+          {% if history %}
+            {% for item in history %}
+              <div class="history-entry">
+                <strong>{{ item.label }} run (exit {{ item.returncode }})</strong><br>
+                <small>Started: {{ item.started }} | Finished: {{ item.finished }}</small>
+                <p><em>{{ item.command }}</em></p>
+                {% if item.stdout %}
+                  <h4>Output</h4>
+                  <pre>{{ item.stdout }}</pre>
+                {% endif %}
+                {% if item.stderr %}
+                  <h4>Errors</h4>
+                  <pre>{{ item.stderr }}</pre>
+                {% endif %}
+              </div>
+            {% endfor %}
+          {% else %}
+            <p class="muted">No runs yet.</p>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+  </div>
+<script>
+  const tabButtons = document.querySelectorAll('[data-tab-target]');
+  const tabContents = document.querySelectorAll('.tab-content');
+  function activateTab(target) {
+    tabButtons.forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tabTarget === target);
+    });
+    tabContents.forEach(panel => {
+      panel.classList.toggle('active', panel.id === `tab-${target}`);
+    });
+  }
+  tabButtons.forEach(btn => {
+    btn.addEventListener('click', () => activateTab(btn.dataset.tabTarget));
+  });
+
+  const actionButtons = document.querySelectorAll('.action-btn');
+  const liveOutput = document.getElementById('live-output');
+  const hostMetricsContainer = document.getElementById('host-metrics');
+  const trackingToggle = document.getElementById('tracking-toggle');
+  const trackingDefault = {{ 'true' if tracking_default else 'false' }};
+  const TRACKING_STORAGE_KEY = 'cluster-ui-tracking';
+  const hostHistory = {};
+  const hostCharts = {};
+  const MAX_HISTORY_POINTS = 120;
+  let metricsInterval = null;
+  let trackingEnabled = false;
+  let actionInProgress = false;
+
+  const ANSI_REGEX = /\u001b\[[0-9;]*m/g;
+
+  function stripAnsi(text) {
+    return text.replace(ANSI_REGEX, '');
+  }
+
+  async function runAction(action, options = {}) {
+    const { silent = false } = options;
+    if (actionInProgress) {
+      if (silent) {
+        return;
+      }
+      if (liveOutput) {
+        liveOutput.textContent = 'Another action is currently running...';
+      }
+      return;
+    }
+
+    actionInProgress = true;
+    if (!silent) {
+      actionButtons.forEach(btn => (btn.disabled = true));
+      if (liveOutput) {
+        liveOutput.textContent = `Running ${action}...\n`;
+      }
+    }
+
+    try {
+      const response = await fetch(`/run/${action}`, { method: 'POST' });
+      if (!response.ok) {
+        if (!silent && liveOutput) {
+          liveOutput.textContent += `Error: ${await response.text()}`;
+        }
+        return;
+      }
+      if (response.body && response.body.getReader) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (!silent && liveOutput) {
+            liveOutput.textContent += stripAnsi(decoder.decode(value));
+            liveOutput.scrollTop = liveOutput.scrollHeight;
+          }
+        }
+      } else {
+        const text = await response.text();
+        if (!silent && liveOutput) {
+          liveOutput.textContent += stripAnsi(text);
+          liveOutput.scrollTop = liveOutput.scrollHeight;
+        }
+      }
+    } catch (err) {
+      if (!silent && liveOutput) {
+        liveOutput.textContent += `\nRequest failed: ${err}`;
+      }
+    } finally {
+      if (!silent) {
+        actionButtons.forEach(btn => (btn.disabled = false));
+        setTimeout(() => window.location.reload(), 1000);
+      }
+      actionInProgress = false;
+    }
+  }
+
+  actionButtons.forEach(btn => {
+    btn.addEventListener('click', () => runAction(btn.dataset.action));
+  });
+  const autoCheckSeconds = {{ auto_check_seconds }};
+  if (typeof autoCheckSeconds === 'number' && autoCheckSeconds > 0) {
+    setInterval(() => {
+      if (document.hidden) {
+        return;
+      }
+      runAction('check', { silent: true });
+    }, autoCheckSeconds * 1000);
+  }
+
+  function sanitizeId(value) {
+    return (value || 'host').replace(/[^a-zA-Z0-9_-]/g, '_');
+  }
+
+  function updateHistory(entry) {
+    if (!entry || !entry.host) return;
+    const history = hostHistory[entry.host] || [];
+    if (entry.ok) {
+      const cpu = entry.cpu && typeof entry.cpu.percent === 'number' ? entry.cpu.percent : null;
+      const mem = entry.memory && typeof entry.memory.percent === 'number' ? entry.memory.percent : null;
+      let gpu = null;
+      if (entry.gpus && entry.gpus.length) {
+        const utilValues = entry.gpus
+          .map(gpuEntry => (typeof gpuEntry.util === 'number' ? gpuEntry.util : null))
+          .filter(val => val !== null);
+        if (utilValues.length) {
+          gpu = utilValues.reduce((a, b) => a + b, 0) / utilValues.length;
+        }
+      }
+      history.push({ ts: Date.now(), cpu, mem, gpu });
+      if (history.length > MAX_HISTORY_POINTS) {
+        history.splice(0, history.length - MAX_HISTORY_POINTS);
+      }
+    }
+    hostHistory[entry.host] = history;
+  }
+
+  function renderTrendChart(host, canvas, history) {
+    if (!canvas || !history || !history.length || typeof Chart === 'undefined') {
+      return;
+    }
+    if (hostCharts[host]) {
+      hostCharts[host].destroy();
+    }
+    const labels = history.map(point => new Date(point.ts).toLocaleTimeString());
+    const baseDataset = (label, color, selector) => ({
+      label,
+      borderColor: color,
+      backgroundColor: color,
+      fill: false,
+      tension: 0.2,
+      pointRadius: 0,
+      borderWidth: 2,
+      data: history.map(selector),
+    });
+    const datasets = [
+      baseDataset('CPU %', '#1b5e20', point => point.cpu),
+      baseDataset('Memory %', '#1565c0', point => point.mem),
+      baseDataset('GPU %', '#ef6c00', point => point.gpu),
+    ].filter(dataset => dataset.data.some(val => typeof val === 'number'));
+    if (!datasets.length) {
+      canvas.remove();
+      return;
+    }
+    hostCharts[host] = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { position: 'bottom' } },
+        scales: {
+          y: {
+            suggestedMin: 0,
+            suggestedMax: 100,
+            beginAtZero: true,
+            ticks: { stepSize: 20 },
+          },
+          x: {
+            ticks: {
+              maxTicksLimit: 6,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  function renderHostMetrics(entries) {
+    if (!hostMetricsContainer) return;
+    if (!entries.length) {
+      hostMetricsContainer.innerHTML = '<p class="muted">No hosts configured.</p>';
+      return;
+    }
+    const grid = document.createElement('div');
+    grid.className = 'host-grid';
+    const chartsToRender = [];
+    entries.forEach(entry => {
+      const card = document.createElement('div');
+      card.className = 'host-card';
+      const title = document.createElement('h3');
+      title.textContent = entry.host || 'Unknown host';
+      card.appendChild(title);
+
+      const meta = document.createElement('div');
+      meta.className = 'host-meta';
+      meta.textContent = entry.collected ? `Updated ${new Date(entry.collected).toLocaleTimeString()}` : 'No timestamp';
+      card.appendChild(meta);
+
+      if (!entry.ok) {
+        const err = document.createElement('p');
+        err.className = 'error';
+        err.textContent = `Error: ${entry.error || 'Unavailable'}`;
+        card.appendChild(err);
+      } else {
+        const cpuRow = document.createElement('div');
+        cpuRow.className = 'metric-row';
+        cpuRow.textContent = `CPU Usage: ${entry.cpu && typeof entry.cpu.percent === 'number' ? entry.cpu.percent.toFixed(1) : 'n/a'}%`;
+        card.appendChild(cpuRow);
+
+        const mem = entry.memory || {};
+        const memRow = document.createElement('div');
+        memRow.className = 'metric-row';
+        const usedMb = typeof mem.used_mb === 'number' ? mem.used_mb : 0;
+        const totalMb = typeof mem.total_mb === 'number' ? mem.total_mb : 0;
+        const memPercent = typeof mem.percent === 'number' ? mem.percent.toFixed(1) : '0';
+        memRow.textContent = `Memory: ${usedMb} / ${totalMb} MiB (${memPercent}%)`;
+        card.appendChild(memRow);
+
+        if (entry.gpus && entry.gpus.length) {
+          const table = document.createElement('table');
+          table.className = 'gpu-table';
+          table.innerHTML = '<tr><th>GPU</th><th>Util%</th><th>Mem Util%</th><th>Memory (MiB)</th><th>Temp (°C)</th></tr>';
+          entry.gpus.forEach(gpu => {
+            const row = document.createElement('tr');
+            const util = typeof gpu.util === 'number' ? gpu.util.toFixed(1) : 'n/a';
+            const memUtil = typeof gpu.memory_util === 'number' ? gpu.memory_util.toFixed(1) : 'n/a';
+            const memUsed = typeof gpu.memory_used === 'number' ? gpu.memory_used.toFixed(0) : '0';
+            const memTotal = typeof gpu.memory_total === 'number' ? gpu.memory_total.toFixed(0) : '0';
+            const temp = typeof gpu.temperature === 'number' ? gpu.temperature.toFixed(0) : 'n/a';
+            row.innerHTML = `<td>${gpu.name || 'GPU ' + gpu.index}</td><td>${util}</td><td>${memUtil}</td><td>${memUsed} / ${memTotal}</td><td>${temp}</td>`;
+            table.appendChild(row);
+          });
+          card.appendChild(table);
+        } else {
+          const gpuNote = document.createElement('p');
+          gpuNote.className = 'muted';
+          gpuNote.textContent = entry.gpu_error ? `GPU: ${entry.gpu_error}` : 'No GPUs detected.';
+          card.appendChild(gpuNote);
+        }
+      }
+
+      const chartWrap = document.createElement('div');
+      chartWrap.className = 'chart-container';
+      const history = hostHistory[entry.host] || [];
+      if (history.length) {
+        const canvas = document.createElement('canvas');
+        const chartId = `chart-${sanitizeId(entry.host)}`;
+        canvas.id = chartId;
+        chartWrap.appendChild(canvas);
+        chartsToRender.push({ host: entry.host, chartId });
+      } else {
+        const waiting = document.createElement('p');
+        waiting.className = 'muted';
+        waiting.textContent = 'Chart will appear after metrics are collected.';
+        chartWrap.appendChild(waiting);
+      }
+      card.appendChild(chartWrap);
+      grid.appendChild(card);
+    });
+    hostMetricsContainer.innerHTML = '';
+    hostMetricsContainer.appendChild(grid);
+    chartsToRender.forEach(item => {
+      const canvas = document.getElementById(item.chartId);
+      const history = hostHistory[item.host] || [];
+      renderTrendChart(item.host, canvas, history);
+    });
+  }
+
+  async function fetchHostMetrics() {
+    if (!hostMetricsContainer) return;
+    try {
+      const resp = await fetch('/host-metrics');
+      if (!resp.ok) {
+        throw new Error(await resp.text());
+      }
+      const data = await resp.json();
+      const entries = Array.isArray(data) ? data : [];
+      entries.forEach(updateHistory);
+      renderHostMetrics(entries);
+    } catch (err) {
+      hostMetricsContainer.innerHTML = `<p class="error">Failed to load host metrics: ${err}</p>`;
+    }
+  }
+
+  function startTracking() {
+    if (!hostMetricsContainer) return;
+    if (metricsInterval) {
+      clearInterval(metricsInterval);
+    }
+    fetchHostMetrics();
+    metricsInterval = setInterval(fetchHostMetrics, 1000);
+  }
+
+  function stopTracking() {
+    if (metricsInterval) {
+      clearInterval(metricsInterval);
+      metricsInterval = null;
+    }
+    if (hostMetricsContainer) {
+      hostMetricsContainer.innerHTML = '<p class="muted">Performance tracking disabled.</p>';
+    }
+  }
+
+  function applyTrackingState(enabled, persist = true) {
+    trackingEnabled = enabled;
+    if (trackingToggle) {
+      trackingToggle.checked = enabled;
+    }
+    if (enabled) {
+      startTracking();
+    } else {
+      stopTracking();
+    }
+    if (persist && typeof localStorage !== 'undefined') {
+      localStorage.setItem(TRACKING_STORAGE_KEY, String(enabled));
+    }
+  }
+
+  if (hostMetricsContainer) {
+    let storedPref = null;
+    try {
+      storedPref = localStorage.getItem(TRACKING_STORAGE_KEY);
+    } catch (err) {
+      storedPref = null;
+    }
+    const initial = storedPref === null ? trackingDefault : storedPref === 'true';
+    applyTrackingState(initial, false);
+    if (trackingToggle) {
+      trackingToggle.checked = initial;
+      trackingToggle.addEventListener('change', () => {
+        applyTrackingState(trackingToggle.checked);
+      });
+    }
+  }
+</script>
+</body>
+</html>

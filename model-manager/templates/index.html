@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ComfyUI Model Manager</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem; background: #f7f7f9; }
+    h1 { margin-bottom: 0.2rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; background: #fff; }
+    th, td { padding: 0.5rem 0.7rem; border-bottom: 1px solid #ddd; text-align: left; }
+    th { background: #fafafa; font-size: 0.9rem; }
+    form.inline { display: inline; }
+    .card { background: #fff; padding: 1rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+    label { display: block; font-size: 0.85rem; margin-top: 0.5rem; }
+    input[type="text"], input[type="url"], select { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
+    button { padding: 0.4rem 0.8rem; border: none; border-radius: 4px; cursor: pointer; }
+    button.primary { background: #2563eb; color: white; }
+    button.danger { background: #dc2626; color: white; }
+    .alert { margin-top: 1rem; padding: 0.8rem; border-radius: 6px; }
+    .alert.success { background: #dcfce7; color: #166534; }
+    .alert.error { background: #fee2e2; color: #991b1b; }
+    small { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>ComfyUI Model Manager</h1>
+  <small>Base directory: {{ base_dir }}</small>
+
+  {% if msg %}
+    <div class="alert success">{{ msg }}</div>
+  {% endif %}
+  {% if error %}
+    <div class="alert error">{{ error }}</div>
+  {% endif %}
+
+  <div class="grid">
+    <div class="card">
+      <h2>Download model</h2>
+      <form method="post" action="/download">
+        <label>Source URL</label>
+        <input type="url" name="url" placeholder="https://.../model.safetensors" required />
+
+        <label>Folder (relative to base)</label>
+        <input type="text" name="folder" list="folder-options" placeholder="checkpoints" value="checkpoints" />
+        <datalist id="folder-options">
+          {% for folder in folders %}
+            <option value="{{ folder }}" />
+          {% endfor %}
+        </datalist>
+
+        <label>Filename (optional)</label>
+        <input type="text" name="filename" placeholder="custom_name.safetensors" />
+
+        <label>
+          <input type="checkbox" name="overwrite" value="true" />
+          Overwrite if file already exists
+        </label>
+
+        <button class="primary" type="submit">Download</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Quick actions</h2>
+      <p>Use the list below to delete models or verify what is already stored on the PVC. You can also port-forward this pod for local use.</p>
+      <form method="post" action="/refresh">
+        <button class="primary" type="submit">Refresh list</button>
+      </form>
+    </div>
+  </div>
+
+  <h2>Stored models ({{ entries|length }})</h2>
+  {% if entries %}
+    <table>
+      <thead>
+        <tr>
+          <th>Path</th>
+          <th>Size</th>
+          <th>Last modified</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+          <tr>
+            <td>{{ entry.relative_path }}</td>
+            <td>{{ entry.size_human }}</td>
+            <td>{{ entry.modified }}</td>
+            <td>
+              <form class="inline" method="post" action="/delete" onsubmit="return confirm('Delete {{ entry.relative_path }}?');">
+                <input type="hidden" name="path" value="{{ entry.relative_path }}" />
+                <button class="danger" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No models stored yet.</p>
+  {% endif %}
+</body>
+</html>

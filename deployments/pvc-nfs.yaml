@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-pvc
+spec:
+  accessModes:
+    - ReadWriteMany   # <-- shared!!
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 2000Gi

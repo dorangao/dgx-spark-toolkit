@@ -35,3 +35,12 @@ chmod +x scripts/*.sh projects/nanochat/speedrun.sh stacks/openwebui/run-stack.s
 - **comfyui-docker/run-comfyui.sh** downloads HuggingFace models (Wan 2.1/2.2, NetaYume), creates persistent volume directories, and runs the ComfyUI container with GPU access on port 13000. Override `HOST_PORT`, `IMAGE`, or `BASE_DIR` via env.
 - **projects/nanochat/speedrun.sh** starts with hardware verification (CPU/mem/GPU/network) before dropping into the nanochat training sequence. Set `NANOCHAT_VERIFY_ONLY=1` for a dry run.
 
+## Network configuration (LAN + 200 G fabric)
+
+`start-k8s-cluster.sh`, `stop-k8s-cluster.sh`, and `run_nccl_200g.sh` now read network overrides from `~/.config/dgx-spark-toolkit/network.env` (or any file pointed to by `DGX_SPARK_NETWORK_CONFIG`). Copy [`config/network.env.example`](config/network.env.example) to that location and tweak:
+
+- Set `CONTROL_PLANE_API_*` to the LAN IP/CIDR/interface that should be reachable from your home network (e.g., `192.168.86.x`).
+- Keep the 200 G interconnect alive by leaving your private fabric in `FABRIC_CTRL_*` and the worker-specific `WORKER_NODE_*` values (default 10.10.10.x). The start script will add the LAN address for API access and still configure the fabric on both nodes.
+- `run_nccl_200g.sh` automatically reuses the same fabric IPs/interfaces so you do not need to edit the script each time.
+
+This split lets the control plane advertise a 192.168.86.x address for the dashboard/UI while the pods and NCCL traffic continue to traverse the dedicated high-speed link between nodes.
