@@ -207,6 +207,15 @@ drain_node() {
         attempt=$((attempt + 1))
     done
 
+    # Last-resort drain without PDB/eviction respect to avoid infinite loops while shutting down
+    if kubectl drain --help 2>/dev/null | grep -q -- "--disable-eviction"; then
+        log_warn "Attempting final drain of $node with eviction disabled and grace-period=0"
+        if kubectl --request-timeout="$KUBECTL_TIMEOUT" drain "$node" --ignore-daemonsets --delete-emptydir-data --force --disable-eviction --grace-period=0 --timeout=3m >/dev/null 2>&1; then
+            log_warn "Node $node drained via disable-eviction fallback"
+            return 0
+        fi
+    fi
+
     log_warn "kubectl drain returned non-zero for $node after $DRAIN_MAX_RETRIES attempts"
     return 1
 }
@@ -363,10 +372,17 @@ cleanup_control_plane_network() {
     fi
 }
 
+pre_drain_cleanup() {
+    # Try once up front so drains do not thrash on PDB/Longhorn instance managers
+    purge_longhorn_instance_managers || true
+    delete_all_pdbs || true
+}
+
 main() {
     log_info "Stopping Kubernetes cluster..."
     check_root
     ensure_kubeconfig || true
+    pre_drain_cleanup
 
     if worker_node_exists; then
         drain_node "$WORKER_NODE_NAME" || true
@@ -377,8 +393,6 @@ main() {
     fi
 
     if kubectl_available; then
-        purge_longhorn_instance_managers || true
-        delete_all_pdbs || true
         if ! drain_node "$(hostname)"; then
             log_warn "Drain of local node timed out; cordoning and continuing."
             cordon_node "$(hostname)" || true
