@@ -1,0 +1,409 @@
+# Multi-Node vLLM Deployment for NVIDIA Nemotron-3 Nano 30B
+#
+# Distributed inference using Pipeline Parallelism across 2 DGX Spark nodes.
+# The model layers are split across nodes: each node holds half the layers.
+# Communication happens via Ray over the 200GbE fabric network (10.10.10.x).
+#
+# Architecture:
+#   - spark-2959 (10.10.10.1): Ray Head + vLLM API Server
+#   - spark-ba63 (10.10.10.2): Ray Worker
+#   - Pipeline Parallelism: 2 (splits layers across 2 nodes)
+#   - Tensor Parallelism: 1 (1 GPU per node)
+#
+# Benefits:
+#   - Larger effective GPU memory (model split across nodes)
+#   - Can run larger context lengths
+#   - Higher throughput for batch inference
+#
+---
+# Headless service for Ray cluster discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: nemotron-ray-head
+  namespace: llm-inference
+  labels:
+    app.kubernetes.io/name: nemotron-distributed
+    app.kubernetes.io/component: ray-head
+spec:
+  clusterIP: None  # Headless service
+  selector:
+    app: nemotron-ray-head
+  ports:
+    - name: ray-client
+      port: 10001
+      targetPort: 10001
+    - name: ray-dashboard
+      port: 8265
+      targetPort: 8265
+    - name: ray-gcs
+      port: 6379
+      targetPort: 6379
+    - name: vllm-http
+      port: 8080
+      targetPort: 8080
+---
+# Ray Head + vLLM Server on spark-2959
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nemotron-ray-head
+  namespace: llm-inference
+  labels:
+    app.kubernetes.io/name: nemotron-distributed
+    app.kubernetes.io/component: ray-head
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nemotron-ray-head
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: nemotron-ray-head
+        app.kubernetes.io/name: nemotron-distributed
+        ray-cluster: nemotron
+        ray-role: head
+    spec:
+      runtimeClassName: nvidia
+      
+      # Pin to spark-2959 (control plane node)
+      nodeSelector:
+        kubernetes.io/hostname: spark-2959
+      
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      
+      terminationGracePeriodSeconds: 60
+      
+      # Use host network for direct fabric access (10.10.10.1)
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: vllm-models-pvc
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: "16Gi"
+      
+      containers:
+        - name: vllm-ray-head
+          image: avarok/vllm-dgx-spark:v11
+          imagePullPolicy: IfNotPresent
+          
+          ports:
+            - name: vllm-http
+              containerPort: 8080
+              hostPort: 8080
+            - name: ray-client
+              containerPort: 10001
+              hostPort: 10001
+            - name: ray-dashboard
+              containerPort: 8265
+              hostPort: 8265
+            - name: ray-gcs
+              containerPort: 6379
+              hostPort: 6379
+          
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token-secret
+                  key: HF_TOKEN
+            - name: HF_HOME
+              value: /models/.cache
+            - name: TRANSFORMERS_CACHE
+              value: /models/.cache
+            - name: HF_HUB_CACHE
+              value: /models/.cache/hub
+            
+            # Ray head configuration
+            - name: RAY_ADDRESS
+              value: "local"
+            
+            # Use fabric network IP for Ray communication
+            - name: VLLM_HOST_IP
+              value: "10.10.10.1"
+            - name: RAY_IP
+              value: "10.10.10.1"
+            
+            # Disable problematic features on Blackwell
+            - name: VLLM_USE_CUDA_GRAPH
+              value: "0"
+          
+          resources:
+            requests:
+              nvidia.com/gpu: 1
+              cpu: "8"
+              memory: "64Gi"
+            limits:
+              nvidia.com/gpu: 1
+              cpu: "16"
+              memory: "96Gi"
+          
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+            - name: dshm
+              mountPath: /dev/shm
+          
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              echo "========================================"
+              echo "Starting Ray Head + vLLM on spark-2959"
+              echo "========================================"
+              echo "Fabric IP: $VLLM_HOST_IP"
+              echo "Model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
+              echo "Pipeline Parallel: 2, Tensor Parallel: 1"
+              echo ""
+              
+              # Start Ray head
+              echo "Starting Ray head node..."
+              ray start --head \
+                --port=6379 \
+                --ray-client-server-port=10001 \
+                --dashboard-host=0.0.0.0 \
+                --dashboard-port=8265 \
+                --node-ip-address=$VLLM_HOST_IP \
+                --num-gpus=1 \
+                --block &
+              
+              # Wait for Ray to be ready
+              sleep 15
+              echo "Ray head started. Waiting for worker to join..."
+              
+              # Wait for worker node to join (up to 5 minutes)
+              for i in $(seq 1 60); do
+                # Count lines matching " 1 node_" pattern (active nodes)
+                NODES=$(ray status 2>/dev/null | grep -c "node_" || echo "0")
+                echo "Ray nodes: $NODES (waiting for 2)"
+                if [ "$NODES" -ge 2 ]; then
+                  echo "Worker joined! Starting vLLM..."
+                  break
+                fi
+                sleep 5
+              done
+              
+              # Kill any existing processes on port 8080 (using Python since fuser not available)
+              python3 -c "
+              import subprocess, re
+              try:
+                  result = subprocess.run(['ss', '-tlnp'], capture_output=True, text=True)
+                  for line in result.stdout.split('\n'):
+                      if ':8080' in line:
+                          match = re.search(r'pid=(\d+)', line)
+                          if match:
+                              pid = match.group(1)
+                              print(f'Killing process {pid} on port 8080')
+                              subprocess.run(['kill', '-9', pid], check=False)
+              except Exception as e:
+                  print(f'Warning: {e}')
+              " || true
+              sleep 3
+              
+              # Start vLLM with pipeline parallelism (explicit Ray backend required)
+              echo "Starting vLLM server with distributed inference..."
+              vllm serve nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 \
+                --host 0.0.0.0 \
+                --port 8080 \
+                --trust-remote-code \
+                --dtype bfloat16 \
+                --distributed-executor-backend ray \
+                --tensor-parallel-size 1 \
+                --pipeline-parallel-size 2 \
+                --max-model-len 4096 \
+                --gpu-memory-utilization 0.85 \
+                --download-dir /models \
+                --enforce-eager
+          
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 300  # Long startup for distributed init
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 60
+          
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false
+---
+# Ray Worker on spark-ba63
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nemotron-ray-worker
+  namespace: llm-inference
+  labels:
+    app.kubernetes.io/name: nemotron-distributed
+    app.kubernetes.io/component: ray-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nemotron-ray-worker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: nemotron-ray-worker
+        app.kubernetes.io/name: nemotron-distributed
+        ray-cluster: nemotron
+        ray-role: worker
+    spec:
+      runtimeClassName: nvidia
+      
+      # Pin to spark-ba63 (worker node)
+      nodeSelector:
+        kubernetes.io/hostname: spark-ba63
+      
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      
+      terminationGracePeriodSeconds: 60
+      
+      # Use host network for direct fabric access (10.10.10.2)
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      
+      volumes:
+        # Worker needs its own model cache (PVC is RWO)
+        # Models will be downloaded separately
+        - name: model-cache
+          emptyDir:
+            sizeLimit: "100Gi"
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: "16Gi"
+      
+      containers:
+        - name: vllm-ray-worker
+          image: avarok/vllm-dgx-spark:v11
+          imagePullPolicy: IfNotPresent
+          
+          ports:
+            - name: ray-worker
+              containerPort: 10002
+              hostPort: 10002
+          
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token-secret
+                  key: HF_TOKEN
+            - name: HF_HOME
+              value: /models/.cache
+            - name: TRANSFORMERS_CACHE
+              value: /models/.cache
+            - name: HF_HUB_CACHE
+              value: /models/.cache/hub
+            
+            # Ray worker configuration - connect to head
+            - name: RAY_HEAD_ADDRESS
+              value: "10.10.10.1:6379"
+            
+            # Use fabric network IP
+            - name: VLLM_HOST_IP
+              value: "10.10.10.2"
+            - name: RAY_IP
+              value: "10.10.10.2"
+            
+            # Disable problematic features on Blackwell
+            - name: VLLM_USE_CUDA_GRAPH
+              value: "0"
+          
+          resources:
+            requests:
+              nvidia.com/gpu: 1
+              cpu: "8"
+              memory: "64Gi"
+            limits:
+              nvidia.com/gpu: 1
+              cpu: "16"
+              memory: "96Gi"
+          
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+            - name: dshm
+              mountPath: /dev/shm
+          
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              echo "========================================"
+              echo "Starting Ray Worker on spark-ba63"
+              echo "========================================"
+              echo "Worker IP: $VLLM_HOST_IP"
+              echo "Connecting to Ray Head: $RAY_HEAD_ADDRESS"
+              echo ""
+              
+              # Wait for head to be reachable (use Python since nc isn't available)
+              echo "Waiting for Ray head to be available..."
+              for i in $(seq 1 60); do
+                if python3 -c "import socket; s=socket.socket(); s.settimeout(2); exit(0 if s.connect_ex(('10.10.10.1', 6379))==0 else 1)" 2>/dev/null; then
+                  echo "Ray head is reachable!"
+                  break
+                fi
+                echo "Waiting for Ray head... ($i/60)"
+                sleep 5
+              done
+              
+              # Start Ray worker and connect to head
+              echo "Starting Ray worker, connecting to head..."
+              exec ray start \
+                --address=$RAY_HEAD_ADDRESS \
+                --node-ip-address=$VLLM_HOST_IP \
+                --num-gpus=1 \
+                --block
+          
+          # Worker doesn't expose HTTP API, just check if process is running
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "pgrep -f 'ray' > /dev/null"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false
+

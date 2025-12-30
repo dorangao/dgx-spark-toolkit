@@ -1,0 +1,99 @@
+# LiteLLM Proxy Deployment
+#
+# Provides:
+# - Request/response logging for all LLM API calls
+# - Token usage tracking
+# - Model aliasing (use any model name, route to vLLM)
+# - Rate limiting capabilities
+# - OpenAI-compatible API endpoint
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-proxy
+  namespace: llm-inference
+  labels:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/component: proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: litellm-proxy
+  template:
+    metadata:
+      labels:
+        app: litellm-proxy
+        app.kubernetes.io/name: litellm
+    spec:
+      containers:
+        - name: litellm
+          image: ghcr.io/berriai/litellm:main-v1.56.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+          env:
+            - name: LITELLM_MASTER_KEY
+              value: "sk-litellm-master-1234"
+            - name: LITELLM_LOG
+              value: "DEBUG"
+            - name: STORE_MODEL_IN_DB
+              value: "False"
+          args:
+            - "--config"
+            - "/app/config.yaml"
+            - "--port"
+            - "4000"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: litellm-config
+---
+# LoadBalancer Service for external access
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-service
+  namespace: llm-inference
+  labels:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/component: api-gateway
+spec:
+  selector:
+    app: litellm-proxy
+  ports:
+    - name: http
+      port: 4000
+      targetPort: 4000
+      protocol: TCP
+  type: LoadBalancer
+  loadBalancerIP: 192.168.86.204
+

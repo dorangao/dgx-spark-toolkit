@@ -1,0 +1,49 @@
+# LiteLLM ConfigMap - Proxy configuration for vLLM backend
+#
+# This configures LiteLLM to route requests to the distributed vLLM deployment
+# and provides logging/tracking of all API calls.
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: llm-inference
+  labels:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/component: config
+data:
+  config.yaml: |
+    model_list:
+      # Nemotron model via vLLM backend
+      - model_name: nemotron
+        litellm_params:
+          model: openai/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+          api_base: http://192.168.86.203:8081/v1
+          api_key: "sk-no-key-required"
+      
+      # Alias for convenience - use "gpt-4" to route to Nemotron
+      - model_name: gpt-4
+        litellm_params:
+          model: openai/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+          api_base: http://192.168.86.203:8081/v1
+          api_key: "sk-no-key-required"
+      
+      # Alias for "default"
+      - model_name: default
+        litellm_params:
+          model: openai/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+          api_base: http://192.168.86.203:8081/v1
+          api_key: "sk-no-key-required"
+
+    litellm_settings:
+      # Enable request/response logging to stdout
+      json_logs: true
+      # Detailed logging
+      turn_off_message_logging: false
+      
+    general_settings:
+      # Master key for admin API access (change this!)
+      master_key: sk-litellm-master-1234
+      # Log to console
+      alerting: ["log"]
+

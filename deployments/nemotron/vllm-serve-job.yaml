@@ -1,0 +1,97 @@
+# RayJob to start vLLM server on the Ray cluster
+#
+# This job runs after the RayCluster is ready and starts the vLLM server
+# with distributed inference using pipeline parallelism.
+#
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: vllm-serve
+  namespace: llm-inference
+  labels:
+    app.kubernetes.io/name: vllm-distributed
+    app.kubernetes.io/component: inference-server
+spec:
+  # Don't delete cluster when job finishes - we want it to keep serving
+  shutdownAfterJobFinishes: false
+  
+  # Use existing cluster instead of creating new one
+  clusterSelector:
+    ray.io/cluster: vllm-cluster
+  
+  # vLLM serve command as entrypoint
+  entrypoint: |
+    python -c "
+    import ray
+    import subprocess
+    import sys
+    import time
+    
+    # Initialize Ray connection
+    ray.init(address='auto')
+    
+    # Wait for all nodes to be ready
+    print('Waiting for Ray cluster to be ready...')
+    for i in range(60):
+        nodes = ray.nodes()
+        ready_nodes = [n for n in nodes if n['Alive']]
+        gpu_count = sum(n.get('Resources', {}).get('GPU', 0) for n in ready_nodes)
+        print(f'Ready nodes: {len(ready_nodes)}, GPUs: {gpu_count}')
+        if len(ready_nodes) >= 2 and gpu_count >= 2:
+            print('Cluster ready! Starting vLLM...')
+            break
+        time.sleep(5)
+    else:
+        print('Timeout waiting for cluster')
+        sys.exit(1)
+    
+    # Start vLLM server
+    cmd = [
+        'vllm', 'serve', 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16',
+        '--host', '0.0.0.0',
+        '--port', '8000',
+        '--trust-remote-code',
+        '--dtype', 'bfloat16',
+        '--distributed-executor-backend', 'ray',
+        '--tensor-parallel-size', '1',
+        '--pipeline-parallel-size', '2',
+        '--max-model-len', '4096',
+        '--gpu-memory-utilization', '0.85',
+        '--download-dir', '/models',
+        '--enforce-eager'
+    ]
+    
+    print(f'Running: {\" \".join(cmd)}')
+    subprocess.run(cmd)
+    "
+  
+  # Runtime environment
+  runtimeEnvYAML: |
+    env_vars:
+      HF_HOME: /models/.cache
+      TRANSFORMERS_CACHE: /models/.cache
+      HF_HUB_CACHE: /models/.cache/hub
+      VLLM_USE_CUDA_GRAPH: "0"
+  
+  # Job runs on head node
+  submitterPodTemplate:
+    spec:
+      containers:
+        - name: job-submitter
+          image: avarok/vllm-dgx-spark:v11
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token-secret
+                  key: HF_TOKEN
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+      restartPolicy: Never
+
