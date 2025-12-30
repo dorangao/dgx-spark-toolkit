@@ -1,0 +1,172 @@
+# Single-Node vLLM Deployment for NVIDIA Nemotron-3 Nano 30B
+#
+# This deployment runs Nemotron-3 Nano 30B on a single DGX Spark node using vLLM.
+# The model uses FP8 precision (~30GB weights) which fits on a single high-memory GPU.
+#
+# Key features:
+# - Uses optimized vLLM image for DGX Spark (Blackwell architecture)
+# - FP8 quantization with FlashInfer optimizations
+# - Persistent model cache to avoid re-downloading
+# - Shared memory for tensor parallel inference
+# - OpenAI-compatible API endpoint
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nemotron-vllm
+  namespace: llm-inference
+  labels:
+    app.kubernetes.io/name: nemotron-vllm
+    app.kubernetes.io/component: inference-server
+    app.kubernetes.io/version: "v0.12.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nemotron-vllm
+  strategy:
+    type: Recreate  # Model loading is expensive; don't run multiple during updates
+  template:
+    metadata:
+      labels:
+        app: nemotron-vllm
+        app.kubernetes.io/name: nemotron-vllm
+    spec:
+      # Use NVIDIA container runtime for GPU access
+      runtimeClassName: nvidia
+      
+      # Pin to spark-2959 (control plane node)
+      nodeSelector:
+        kubernetes.io/hostname: spark-2959
+      
+      # Ensure pod is scheduled on a node with GPU
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      
+      # Grace period for model unloading
+      terminationGracePeriodSeconds: 30
+      
+      volumes:
+        # Persistent storage for model weights cache
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: vllm-models-pvc
+        
+        # Shared memory for tensor parallel inference
+        # vLLM uses /dev/shm for inter-process GPU communication
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: "8Gi"
+      
+      containers:
+        - name: vllm-server
+          # DGX Spark optimized image with SM12.1 (Blackwell) support
+          # Includes CUDA 13, FlashInfer FP8, and Blackwell fixes
+          image: avarok/vllm-dgx-spark:v11
+          
+          imagePullPolicy: IfNotPresent
+          
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          
+          env:
+            # HuggingFace authentication
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token-secret
+                  key: HF_TOKEN
+            
+            # Cache directories - point to PVC
+            - name: HF_HOME
+              value: /models/.cache
+            - name: TRANSFORMERS_CACHE
+              value: /models/.cache
+            - name: HF_HUB_CACHE
+              value: /models/.cache/hub
+            
+            # vLLM optimizations for DGX Spark / Blackwell
+            # 'throughput' mode optimizes for higher tokens/s
+            # 'latency' mode may be better for SM12.1 compatibility
+            - name: VLLM_FLASHINFER_MOE_BACKEND
+              value: "throughput"
+            
+            # Enable CUDA graphs for better performance (~66 tok/s vs ~42 tok/s)
+            - name: VLLM_USE_CUDA_GRAPH
+              value: "1"
+          
+          resources:
+            requests:
+              nvidia.com/gpu: 1
+              cpu: "4"
+              memory: "32Gi"
+            limits:
+              nvidia.com/gpu: 1
+              cpu: "16"
+              memory: "96Gi"
+          
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+            - name: dshm
+              mountPath: /dev/shm
+          
+          # Startup command for vLLM server
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              echo "Starting vLLM server for Nemotron-3 Nano 30B..."
+              echo "Model cache directory: $HF_HOME"
+              echo "FlashInfer backend: $VLLM_FLASHINFER_MOE_BACKEND"
+              
+              # Launch vLLM with OpenAI-compatible API
+              exec vllm serve nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 \
+                --host 0.0.0.0 \
+                --port 8000 \
+                --trust-remote-code \
+                --dtype bfloat16 \
+                --tensor-parallel-size 1 \
+                --max-model-len 2048 \
+                --gpu-memory-utilization 0.85 \
+                --download-dir /models \
+                --enforce-eager
+          
+          # Health checks - vLLM exposes /health endpoint
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 60  # Allow up to 30 minutes for model download/loading
+          
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: false  # vLLM needs root for some GPU operations
+

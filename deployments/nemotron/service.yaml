@@ -1,0 +1,52 @@
+# Service for Nemotron vLLM inference server
+#
+# Exposes the OpenAI-compatible API endpoint.
+# Uses MetalLB LoadBalancer for external access from LAN.
+#
+# API Endpoints (OpenAI-compatible):
+#   - POST /v1/chat/completions    - Chat completions
+#   - POST /v1/completions         - Text completions
+#   - GET  /v1/models              - List available models
+#   - GET  /health                 - Health check
+#
+apiVersion: v1
+kind: Service
+metadata:
+  name: nemotron-service
+  namespace: llm-inference
+  labels:
+    app.kubernetes.io/name: nemotron-vllm
+    app.kubernetes.io/component: api-gateway
+spec:
+  selector:
+    app: nemotron-vllm
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  type: LoadBalancer
+  # MetalLB will assign an IP from the pool (192.168.86.200-220)
+  # Optionally specify a fixed IP:
+  # loadBalancerIP: 192.168.86.210
+---
+# Optional: ClusterIP service for internal cluster access
+apiVersion: v1
+kind: Service
+metadata:
+  name: nemotron-internal
+  namespace: llm-inference
+  labels:
+    app.kubernetes.io/name: nemotron-vllm
+    app.kubernetes.io/component: internal-api
+spec:
+  selector:
+    app: nemotron-vllm
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP
+  type: ClusterIP
+
+

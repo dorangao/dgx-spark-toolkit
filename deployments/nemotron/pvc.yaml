@@ -1,0 +1,20 @@
+# Persistent Volume Claim for vLLM model cache
+# Stores downloaded model weights to avoid re-downloading on pod restarts
+# Nemotron-3 Nano 30B FP8 is ~30GB, BF16 is ~60GB - allocate 100Gi for headroom
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-models-pvc
+  namespace: llm-inference
+  labels:
+    app.kubernetes.io/name: nemotron-vllm
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce  # RWO is sufficient for single-node; use RWX for multi-replica
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 100Gi
+
+

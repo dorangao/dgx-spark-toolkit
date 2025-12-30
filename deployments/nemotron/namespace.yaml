@@ -1,0 +1,10 @@
+# Namespace for LLM inference workloads
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-inference
+  labels:
+    app.kubernetes.io/name: llm-inference
+    app.kubernetes.io/component: ai-inference
+
+
