@@ -303,6 +303,24 @@
       min-width: 70px;
     }
 
+    .token-btn {
+      background: var(--accent);
+      border: none;
+      border-radius: 4px;
+      padding: 2px 8px;
+      margin-left: 8px;
+      cursor: pointer;
+      font-size: 0.75rem;
+      transition: all 0.2s;
+    }
+    .token-btn:hover {
+      transform: scale(1.1);
+      filter: brightness(1.1);
+    }
+    .token-btn.copied {
+      background: var(--success);
+    }
+
     .endpoint code {
       background: var(--bg-dark);
       padding: 0.2rem 0.5rem;
@@ -1278,6 +1296,7 @@
                 <div class="endpoint">
                   <span class="endpoint-label">K8s Dashboard:</span>
                   <a href="https://192.168.86.205" target="_blank" style="color: var(--accent);">192.168.86.205</a>
+                  <button onclick="copyK8sToken()" class="token-btn" title="Copy login token">🔑</button>
                 </div>
               </div>
             </div>
@@ -2521,6 +2540,33 @@
       }
     } catch (err) {
       showToast(`Error: ${err}`, 'error');
+    }
+  }
+
+  async function copyK8sToken() {
+    const btn = document.querySelector('.token-btn');
+    btn.textContent = '⏳';
+    
+    try {
+      const response = await fetch('/k8s-dashboard/token');
+      const data = await response.json();
+      
+      if (data.success && data.token) {
+        await navigator.clipboard.writeText(data.token);
+        btn.textContent = '✓';
+        btn.classList.add('copied');
+        showToast('Token copied to clipboard! Paste it in the K8s Dashboard login.', 'success');
+        setTimeout(() => {
+          btn.textContent = '🔑';
+          btn.classList.remove('copied');
+        }, 3000);
+      } else {
+        showToast(`Failed to get token: ${data.error}`, 'error');
+        btn.textContent = '🔑';
+      }
+    } catch (err) {
+      showToast(`Error: ${err}`, 'error');
+      btn.textContent = '🔑';
     }
   }
 

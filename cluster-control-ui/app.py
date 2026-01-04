@@ -1215,5 +1215,30 @@ def nemotron_litellm_restart():
     return jsonify({"success": ok, "message": output})
 
 
+# --------------------------------------------------------------------------
+# Kubernetes Dashboard Token
+# --------------------------------------------------------------------------
+
+@app.route("/k8s-dashboard/token", methods=["GET"])
+def k8s_dashboard_token():
+    """Get the Kubernetes Dashboard admin token."""
+    try:
+        result = subprocess.run(
+            ["kubectl", "get", "secret", "dashboard-admin-token", "-n", "kubernetes-dashboard",
+             "-o", "jsonpath={.data.token}"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0 and result.stdout:
+            import base64
+            token = base64.b64decode(result.stdout).decode('utf-8')
+            return jsonify({"success": True, "token": token})
+        else:
+            return jsonify({"success": False, "error": result.stderr or "Token not found"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=False)
