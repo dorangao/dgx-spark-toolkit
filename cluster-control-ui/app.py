@@ -824,5 +824,396 @@ def host_metrics_stream():
     )
 
 
+# --------------------------------------------------------------------------
+# Nemotron Deployment Management
+# --------------------------------------------------------------------------
+
+NEMOTRON_NAMESPACE = "llm-inference"
+NEMOTRON_DEPLOYMENT_DIR = Path(os.environ.get(
+    "NEMOTRON_DEPLOYMENT_DIR",
+    "~/dgx-spark-toolkit/deployments/nemotron"
+)).expanduser()
+
+# vLLM service endpoints
+VLLM_DISTRIBUTED_IP = os.environ.get("VLLM_DISTRIBUTED_IP", "192.168.86.203")
+VLLM_DISTRIBUTED_PORT = os.environ.get("VLLM_DISTRIBUTED_PORT", "8081")
+LITELLM_IP = os.environ.get("LITELLM_IP", "192.168.86.204")
+LITELLM_PORT = os.environ.get("LITELLM_PORT", "4000")
+
+
+def _get_nemotron_status() -> Dict[str, object]:
+    """Get comprehensive Nemotron deployment status."""
+    import urllib.request
+    import urllib.error
+    
+    status = {
+        "mode": "not_deployed",  # "distributed", "single", "not_deployed"
+        "ray_cluster": None,
+        "ray_job": None,
+        "pods": [],
+        "services": [],
+        "vllm_health": None,
+        "litellm_health": None,
+        "endpoints": {
+            "vllm": f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}",
+            "litellm": f"http://{LITELLM_IP}:{LITELLM_PORT}",
+            "ray_dashboard": "http://10.10.10.1:8265",
+        },
+    }
+    
+    # Check RayCluster
+    ok, output = _run_kubectl([
+        "get", "raycluster", "vllm-cluster", "-n", NEMOTRON_NAMESPACE,
+        "-o", "jsonpath={.status.state},{.status.availableWorkerReplicas},{.status.desiredWorkerReplicas}"
+    ])
+    if ok and output.strip():
+        parts = output.split(",")
+        status["ray_cluster"] = {
+            "state": parts[0] if parts else "unknown",
+            "available_workers": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0,
+            "desired_workers": int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0,
+        }
+        status["mode"] = "distributed"
+    
+    # Check RayJob
+    ok, output = _run_kubectl([
+        "get", "rayjob", "vllm-serve", "-n", NEMOTRON_NAMESPACE,
+        "-o", "jsonpath={.status.jobStatus},{.status.jobDeploymentStatus}"
+    ])
+    if ok and output.strip():
+        parts = output.split(",")
+        status["ray_job"] = {
+            "status": parts[0] if parts else "unknown",
+            "deployment_status": parts[1] if len(parts) > 1 else "unknown",
+        }
+    
+    # Check for single-node deployment if no RayCluster
+    if status["mode"] == "not_deployed":
+        ok, output = _run_kubectl([
+            "get", "deployment", "nemotron-vllm", "-n", NEMOTRON_NAMESPACE,
+            "-o", "jsonpath={.status.replicas},{.status.readyReplicas}"
+        ])
+        if ok and output.strip():
+            parts = output.split(",")
+            replicas = int(parts[0]) if parts[0].isdigit() else 0
+            ready = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+            if replicas > 0:
+                status["mode"] = "single"
+                status["single_deployment"] = {
+                    "replicas": replicas,
+                    "ready": ready,
+                }
+    
+    # Get Ray pods
+    ok, output = _run_kubectl([
+        "get", "pods", "-n", NEMOTRON_NAMESPACE,
+        "-l", "ray-cluster=vllm-cluster",
+        "-o", "jsonpath={range .items[*]}{.metadata.name},{.status.phase},{.spec.nodeName},{.metadata.labels.ray-node-type}{\"\\n\"}{end}"
+    ])
+    if ok:
+        for line in output.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split(",")
+            if len(parts) >= 4:
+                status["pods"].append({
+                    "name": parts[0],
+                    "phase": parts[1],
+                    "node": parts[2],
+                    "type": parts[3],  # head or worker
+                })
+    
+    # Get related services
+    ok, output = _run_kubectl([
+        "get", "svc", "-n", NEMOTRON_NAMESPACE,
+        "-o", "jsonpath={range .items[*]}{.metadata.name},{.spec.type},{.status.loadBalancer.ingress[0].ip},{.spec.ports[0].port}{\"\\n\"}{end}"
+    ])
+    if ok:
+        for line in output.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split(",")
+            if len(parts) >= 3:
+                status["services"].append({
+                    "name": parts[0],
+                    "type": parts[1],
+                    "external_ip": parts[2] if parts[2] else None,
+                    "port": parts[3] if len(parts) > 3 else None,
+                })
+    
+    # Check vLLM health
+    try:
+        req = urllib.request.Request(
+            f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/health",
+            method="GET"
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            status["vllm_health"] = {
+                "healthy": resp.status == 200,
+                "status_code": resp.status,
+            }
+    except urllib.error.URLError:
+        status["vllm_health"] = {"healthy": False, "error": "Connection refused"}
+    except Exception as e:
+        status["vllm_health"] = {"healthy": False, "error": str(e)}
+    
+    # Check LiteLLM health
+    try:
+        req = urllib.request.Request(
+            f"http://{LITELLM_IP}:{LITELLM_PORT}/health/readiness",
+            method="GET"
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            status["litellm_health"] = {
+                "healthy": resp.status == 200,
+                "status_code": resp.status,
+            }
+    except urllib.error.URLError:
+        status["litellm_health"] = {"healthy": False, "error": "Connection refused"}
+    except Exception as e:
+        status["litellm_health"] = {"healthy": False, "error": str(e)}
+    
+    return status
+
+
+@app.route("/nemotron/status", methods=["GET"])
+def nemotron_status():
+    """Get Nemotron deployment status."""
+    return jsonify(_get_nemotron_status())
+
+
+@app.route("/nemotron/deploy/distributed", methods=["POST"])
+def nemotron_deploy_distributed():
+    """Deploy Nemotron in distributed mode using KubeRay."""
+    from flask import request
+    
+    # Check if already deployed
+    status = _get_nemotron_status()
+    if status["mode"] == "distributed":
+        return jsonify({
+            "success": False,
+            "message": "Distributed deployment already exists. Delete first to redeploy.",
+        })
+    
+    results = []
+    
+    # Step 1: Delete single-node deployment if exists
+    if status["mode"] == "single":
+        ok, output = _run_kubectl_action([
+            "delete", "deployment", "nemotron-vllm", "-n", NEMOTRON_NAMESPACE,
+            "--ignore-not-found"
+        ])
+        results.append({"step": "delete_single", "success": ok, "output": output})
+    
+    # Step 2: Apply RayCluster
+    raycluster_file = NEMOTRON_DEPLOYMENT_DIR / "raycluster-vllm.yaml"
+    if not raycluster_file.exists():
+        return jsonify({
+            "success": False,
+            "message": f"RayCluster manifest not found: {raycluster_file}",
+        })
+    
+    ok, output = _run_kubectl_action(["apply", "-f", str(raycluster_file)], timeout=30)
+    results.append({"step": "apply_raycluster", "success": ok, "output": output})
+    if not ok:
+        return jsonify({"success": False, "message": "Failed to apply RayCluster", "results": results})
+    
+    # Step 3: Apply vLLM serve job
+    servejob_file = NEMOTRON_DEPLOYMENT_DIR / "vllm-serve-job.yaml"
+    if servejob_file.exists():
+        ok, output = _run_kubectl_action(["apply", "-f", str(servejob_file)], timeout=30)
+        results.append({"step": "apply_servejob", "success": ok, "output": output})
+    
+    # Step 4: Apply distributed service
+    service_file = NEMOTRON_DEPLOYMENT_DIR / "service-distributed.yaml"
+    if service_file.exists():
+        ok, output = _run_kubectl_action(["apply", "-f", str(service_file)], timeout=30)
+        results.append({"step": "apply_service", "success": ok, "output": output})
+    
+    return jsonify({
+        "success": all(r["success"] for r in results),
+        "message": "Distributed deployment initiated. Ray cluster will start shortly.",
+        "results": results,
+    })
+
+
+@app.route("/nemotron/deploy/single", methods=["POST"])
+def nemotron_deploy_single():
+    """Deploy Nemotron in single-node mode."""
+    status = _get_nemotron_status()
+    results = []
+    
+    # Step 1: Delete distributed deployment if exists
+    if status["mode"] == "distributed":
+        # Delete RayJob
+        ok, output = _run_kubectl_action([
+            "delete", "rayjob", "vllm-serve", "-n", NEMOTRON_NAMESPACE,
+            "--ignore-not-found"
+        ])
+        results.append({"step": "delete_rayjob", "success": ok, "output": output})
+        
+        # Delete RayCluster
+        ok, output = _run_kubectl_action([
+            "delete", "raycluster", "vllm-cluster", "-n", NEMOTRON_NAMESPACE,
+            "--ignore-not-found"
+        ])
+        results.append({"step": "delete_raycluster", "success": ok, "output": output})
+    
+    # Step 2: Apply single-node deployment
+    single_file = NEMOTRON_DEPLOYMENT_DIR / "deployment-single-node.yaml"
+    if not single_file.exists():
+        return jsonify({
+            "success": False,
+            "message": f"Single-node manifest not found: {single_file}",
+        })
+    
+    ok, output = _run_kubectl_action(["apply", "-f", str(single_file)], timeout=30)
+    results.append({"step": "apply_single", "success": ok, "output": output})
+    
+    # Step 3: Apply standard service
+    service_file = NEMOTRON_DEPLOYMENT_DIR / "service.yaml"
+    if service_file.exists():
+        ok, output = _run_kubectl_action(["apply", "-f", str(service_file)], timeout=30)
+        results.append({"step": "apply_service", "success": ok, "output": output})
+    
+    return jsonify({
+        "success": all(r["success"] for r in results),
+        "message": "Single-node deployment initiated.",
+        "results": results,
+    })
+
+
+@app.route("/nemotron/delete", methods=["POST"])
+def nemotron_delete():
+    """Delete Nemotron deployment (both distributed and single-node)."""
+    results = []
+    
+    # Delete RayJob
+    ok, output = _run_kubectl_action([
+        "delete", "rayjob", "vllm-serve", "-n", NEMOTRON_NAMESPACE,
+        "--ignore-not-found"
+    ])
+    results.append({"step": "delete_rayjob", "success": ok, "output": output})
+    
+    # Delete RayCluster
+    ok, output = _run_kubectl_action([
+        "delete", "raycluster", "vllm-cluster", "-n", NEMOTRON_NAMESPACE,
+        "--ignore-not-found"
+    ])
+    results.append({"step": "delete_raycluster", "success": ok, "output": output})
+    
+    # Delete single-node deployment
+    ok, output = _run_kubectl_action([
+        "delete", "deployment", "nemotron-vllm", "-n", NEMOTRON_NAMESPACE,
+        "--ignore-not-found"
+    ])
+    results.append({"step": "delete_single", "success": ok, "output": output})
+    
+    # Note: Keep namespace, PVC, secrets, and LiteLLM intact
+    
+    return jsonify({
+        "success": all(r["success"] for r in results),
+        "message": "Nemotron deployment deleted. Namespace, PVC, secrets, and LiteLLM retained.",
+        "results": results,
+    })
+
+
+@app.route("/nemotron/health", methods=["GET"])
+def nemotron_health():
+    """Check vLLM and LiteLLM health endpoints."""
+    import urllib.request
+    import urllib.error
+    
+    health = {"vllm": None, "litellm": None, "models": None}
+    
+    # Check vLLM health
+    try:
+        req = urllib.request.Request(
+            f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/health",
+            method="GET"
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            health["vllm"] = {
+                "healthy": resp.status == 200,
+                "status_code": resp.status,
+                "endpoint": f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}",
+            }
+    except urllib.error.URLError as e:
+        health["vllm"] = {"healthy": False, "error": str(e.reason)}
+    except Exception as e:
+        health["vllm"] = {"healthy": False, "error": str(e)}
+    
+    # Check LiteLLM health
+    try:
+        req = urllib.request.Request(
+            f"http://{LITELLM_IP}:{LITELLM_PORT}/health/readiness",
+            method="GET"
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            health["litellm"] = {
+                "healthy": resp.status == 200,
+                "status_code": resp.status,
+                "endpoint": f"http://{LITELLM_IP}:{LITELLM_PORT}",
+            }
+    except urllib.error.URLError as e:
+        health["litellm"] = {"healthy": False, "error": str(e.reason)}
+    except Exception as e:
+        health["litellm"] = {"healthy": False, "error": str(e)}
+    
+    # Get available models from vLLM
+    if health["vllm"] and health["vllm"].get("healthy"):
+        try:
+            req = urllib.request.Request(
+                f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/v1/models",
+                method="GET"
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                import json as _json
+                data = _json.loads(resp.read().decode())
+                health["models"] = [m.get("id") for m in data.get("data", [])]
+        except Exception:
+            pass
+    
+    return jsonify(health)
+
+
+@app.route("/nemotron/logs", methods=["GET"])
+def nemotron_logs():
+    """Get logs from Ray head pod."""
+    from flask import request
+    lines = request.args.get("lines", "100")
+    
+    # Get head pod name
+    ok, output = _run_kubectl([
+        "get", "pods", "-n", NEMOTRON_NAMESPACE,
+        "-l", "ray-node-type=head",
+        "-o", "jsonpath={.items[0].metadata.name}"
+    ])
+    
+    if not ok or not output.strip():
+        return jsonify({"success": False, "logs": "", "error": "Head pod not found"})
+    
+    pod_name = output.strip()
+    ok, logs = _run_kubectl_action([
+        "logs", pod_name, "-n", NEMOTRON_NAMESPACE, f"--tail={lines}"
+    ], timeout=30)
+    
+    return jsonify({
+        "success": ok,
+        "pod": pod_name,
+        "logs": logs if ok else "",
+        "error": logs if not ok else None,
+    })
+
+
+@app.route("/nemotron/litellm/restart", methods=["POST"])
+def nemotron_litellm_restart():
+    """Restart LiteLLM proxy deployment."""
+    ok, output = _run_kubectl_action([
+        "rollout", "restart", "deployment", "litellm-proxy", "-n", NEMOTRON_NAMESPACE
+    ])
+    return jsonify({"success": ok, "message": output})
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=False)

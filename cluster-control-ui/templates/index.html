@@ -200,6 +200,185 @@
       font-size: 0.75rem;
     }
 
+    .ops-btn.gpu {
+      background: linear-gradient(135deg, #76b900, #4a7d00);
+      color: #fff;
+    }
+
+    /* Nemotron Panel Styles */
+    .nemotron-panel {
+      border-left: 4px solid #76b900;
+    }
+
+    .nemotron-status-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      background: var(--bg-dark);
+      border-radius: 8px;
+      margin-bottom: 1rem;
+    }
+
+    .nemotron-mode {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .mode-label {
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .mode-badge {
+      padding: 0.25rem 0.75rem;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .mode-badge.distributed {
+      background: #76b900;
+      color: #fff;
+    }
+
+    .mode-badge.single {
+      background: #3b82f6;
+      color: #fff;
+    }
+
+    .mode-badge.not-deployed {
+      background: #64748b;
+      color: #fff;
+    }
+
+    .nemotron-health {
+      display: flex;
+      gap: 1rem;
+    }
+
+    .health-indicator {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+    }
+
+    .health-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .health-dot.online {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    .health-dot.offline {
+      background: #64748b;
+    }
+
+    .health-dot.error {
+      background: var(--danger);
+    }
+
+    .endpoints-info {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .endpoint {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+    }
+
+    .endpoint-label {
+      color: var(--text-muted);
+      min-width: 70px;
+    }
+
+    .endpoint code {
+      background: var(--bg-dark);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+    }
+
+    .nemotron-pods-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .nemotron-pod-card {
+      background: var(--bg-dark);
+      padding: 0.75rem;
+      border-radius: 8px;
+      border-left: 3px solid #76b900;
+    }
+
+    .nemotron-pod-card.head {
+      border-left-color: #f59e0b;
+    }
+
+    .nemotron-pod-card.worker {
+      border-left-color: #3b82f6;
+    }
+
+    .nemotron-pod-card .pod-name {
+      font-weight: 600;
+      font-size: 0.9rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .nemotron-pod-card .pod-meta {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Modal styles for logs */
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal-header h3 {
+      margin: 0;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+
+    .modal-close:hover {
+      color: var(--text);
+    }
+
+    .modal-body {
+      padding: 1rem 0;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+
     /* Action dropdown for nodes */
     .node-actions {
       position: relative;
@@ -1023,6 +1202,101 @@
               <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.75rem;">
                 Click ⋮ on nodes for cordon/drain options
               </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Nemotron LLM Deployment Panel -->
+        <div class="ops-panel nemotron-panel" style="margin-top: 1rem;">
+          <h4><span class="icon">🤖</span> Nemotron LLM Deployment</h4>
+          <div id="nemotron-status-container">
+            <div class="nemotron-status-bar">
+              <div class="nemotron-mode">
+                <span class="mode-label">Mode:</span>
+                <span id="nemotron-mode-badge" class="mode-badge not-deployed">Not Deployed</span>
+              </div>
+              <div class="nemotron-health">
+                <span id="vllm-health" class="health-indicator" title="vLLM API">
+                  <span class="health-dot offline"></span> vLLM
+                </span>
+                <span id="litellm-health" class="health-indicator" title="LiteLLM Proxy">
+                  <span class="health-dot offline"></span> LiteLLM
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="ops-grid">
+            <div class="ops-section">
+              <h5>Deployment Mode</h5>
+              <div class="ops-buttons">
+                <button class="ops-btn gpu" onclick="deployNemotron('distributed')" id="ops-deploy-distributed" title="Deploy with KubeRay (2 GPUs)">
+                  🚀 Distributed
+                </button>
+                <button class="ops-btn secondary" onclick="deployNemotron('single')" id="ops-deploy-single" title="Deploy on single node">
+                  📦 Single Node
+                </button>
+                <button class="ops-btn danger sm" onclick="confirmAction('nemotron-delete', 'Delete the Nemotron deployment? This will remove the vLLM server.')" id="ops-nemotron-delete" title="Delete deployment">
+                  🗑️ Delete
+                </button>
+              </div>
+              <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.75rem;">
+                Distributed uses KubeRay + Pipeline Parallelism
+              </p>
+            </div>
+            <div class="ops-section">
+              <h5>Service Health</h5>
+              <div class="ops-buttons">
+                <button class="ops-btn primary" onclick="checkNemotronHealth()" id="ops-nemotron-health">
+                  ❤️ Check Health
+                </button>
+                <button class="ops-btn secondary" onclick="showNemotronLogs()" id="ops-nemotron-logs">
+                  📋 View Logs
+                </button>
+                <button class="ops-btn secondary sm" onclick="restartLiteLLM()" title="Restart LiteLLM proxy">
+                  🔄 LiteLLM
+                </button>
+              </div>
+              <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.75rem;">
+                Check vLLM + LiteLLM endpoints
+              </p>
+            </div>
+            <div class="ops-section">
+              <h5>API Endpoints</h5>
+              <div class="endpoints-info">
+                <div class="endpoint">
+                  <span class="endpoint-label">vLLM:</span>
+                  <code id="vllm-endpoint">192.168.86.203:8081</code>
+                </div>
+                <div class="endpoint">
+                  <span class="endpoint-label">LiteLLM:</span>
+                  <code id="litellm-endpoint">192.168.86.204:4000</code>
+                </div>
+                <div class="endpoint">
+                  <span class="endpoint-label">Ray Dashboard:</span>
+                  <a href="http://10.10.10.1:8265" target="_blank" style="color: var(--accent);">10.10.10.1:8265</a>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Ray Cluster Details (shown when deployed) -->
+          <div id="nemotron-details" style="display: none; margin-top: 1rem;">
+            <div class="nemotron-pods-grid" id="nemotron-pods-grid"></div>
+          </div>
+        </div>
+
+        <!-- Nemotron Logs Modal -->
+        <div id="nemotron-logs-modal" class="modal">
+          <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+              <h3>📋 Ray Head Pod Logs</h3>
+              <button class="modal-close" onclick="hideNemotronLogsModal()">×</button>
+            </div>
+            <div class="modal-body">
+              <pre id="nemotron-logs-content" style="max-height: 400px; overflow: auto; background: var(--bg-dark); padding: 1rem; border-radius: 8px; font-size: 0.85rem;">Loading...</pre>
+            </div>
+            <div class="modal-footer">
+              <button class="ops-btn secondary" onclick="refreshNemotronLogs()">🔄 Refresh</button>
+              <button class="ops-btn secondary" onclick="hideNemotronLogsModal()">Close</button>
             </div>
           </div>
         </div>
@@ -2036,6 +2310,247 @@
       console.error('Wake status check failed:', err);
     }
   }
+
+  // ==========================================
+  // Nemotron LLM Deployment Functions
+  // ==========================================
+
+  let nemotronStatusInterval = null;
+
+  async function loadNemotronStatus() {
+    try {
+      const response = await fetch('/nemotron/status');
+      const data = await response.json();
+      updateNemotronUI(data);
+    } catch (err) {
+      console.error('Failed to load Nemotron status:', err);
+    }
+  }
+
+  function updateNemotronUI(status) {
+    // Update mode badge
+    const modeBadge = document.getElementById('nemotron-mode-badge');
+    if (modeBadge) {
+      modeBadge.className = `mode-badge ${status.mode.replace('_', '-')}`;
+      const modeText = {
+        'distributed': 'Distributed (KubeRay)',
+        'single': 'Single Node',
+        'not_deployed': 'Not Deployed',
+      };
+      modeBadge.textContent = modeText[status.mode] || status.mode;
+    }
+
+    // Update health indicators
+    const vllmHealth = document.getElementById('vllm-health');
+    if (vllmHealth && status.vllm_health) {
+      const dot = vllmHealth.querySelector('.health-dot');
+      if (dot) {
+        dot.className = `health-dot ${status.vllm_health.healthy ? 'online' : 'offline'}`;
+      }
+    }
+
+    const litellmHealth = document.getElementById('litellm-health');
+    if (litellmHealth && status.litellm_health) {
+      const dot = litellmHealth.querySelector('.health-dot');
+      if (dot) {
+        dot.className = `health-dot ${status.litellm_health.healthy ? 'online' : 'offline'}`;
+      }
+    }
+
+    // Update pods grid
+    const podsGrid = document.getElementById('nemotron-pods-grid');
+    const detailsDiv = document.getElementById('nemotron-details');
+    if (podsGrid && status.pods && status.pods.length > 0) {
+      if (detailsDiv) detailsDiv.style.display = 'block';
+      podsGrid.innerHTML = status.pods.map(pod => `
+        <div class="nemotron-pod-card ${pod.type}">
+          <div class="pod-name">${pod.name.substring(0, 30)}${pod.name.length > 30 ? '...' : ''}</div>
+          <div class="pod-meta">
+            <span class="status-${pod.phase.toLowerCase()}">${pod.phase}</span>
+            · ${pod.node} · ${pod.type}
+          </div>
+        </div>
+      `).join('');
+    } else if (detailsDiv) {
+      detailsDiv.style.display = 'none';
+    }
+
+    // Update Ray cluster info if available
+    if (status.ray_cluster) {
+      console.log('Ray Cluster:', status.ray_cluster);
+    }
+  }
+
+  async function deployNemotron(mode) {
+    if (opsInProgress) {
+      showToast('Another operation is in progress...', 'error');
+      return;
+    }
+
+    const modeLabel = mode === 'distributed' ? 'Distributed (KubeRay)' : 'Single Node';
+    if (!confirm(`Deploy Nemotron in ${modeLabel} mode?`)) return;
+
+    opsInProgress = true;
+    document.querySelectorAll('.ops-btn').forEach(btn => btn.disabled = true);
+    showToast(`Deploying Nemotron in ${modeLabel} mode...`, 'info');
+
+    try {
+      const response = await fetch(`/nemotron/deploy/${mode}`, { method: 'POST' });
+      const data = await response.json();
+
+      if (data.success) {
+        showToast(`${modeLabel} deployment initiated!`, 'success');
+        // Reload status after a delay
+        setTimeout(loadNemotronStatus, 3000);
+      } else {
+        showToast(`Deployment failed: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err}`, 'error');
+    } finally {
+      opsInProgress = false;
+      document.querySelectorAll('.ops-btn').forEach(btn => btn.disabled = false);
+    }
+  }
+
+  async function deleteNemotron() {
+    if (opsInProgress) {
+      showToast('Another operation is in progress...', 'error');
+      return;
+    }
+
+    opsInProgress = true;
+    document.querySelectorAll('.ops-btn').forEach(btn => btn.disabled = true);
+    showToast('Deleting Nemotron deployment...', 'info');
+
+    try {
+      const response = await fetch('/nemotron/delete', { method: 'POST' });
+      const data = await response.json();
+
+      if (data.success) {
+        showToast('Nemotron deployment deleted!', 'success');
+        loadNemotronStatus();
+      } else {
+        showToast(`Delete failed: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err}`, 'error');
+    } finally {
+      opsInProgress = false;
+      document.querySelectorAll('.ops-btn').forEach(btn => btn.disabled = false);
+    }
+  }
+
+  async function checkNemotronHealth() {
+    showToast('Checking Nemotron health...', 'info');
+    try {
+      const response = await fetch('/nemotron/health');
+      const data = await response.json();
+
+      let messages = [];
+      if (data.vllm) {
+        const status = data.vllm.healthy ? '✅' : '❌';
+        messages.push(`vLLM: ${status}`);
+      }
+      if (data.litellm) {
+        const status = data.litellm.healthy ? '✅' : '❌';
+        messages.push(`LiteLLM: ${status}`);
+      }
+      if (data.models && data.models.length > 0) {
+        messages.push(`Models: ${data.models.join(', ')}`);
+      }
+
+      const healthy = (data.vllm?.healthy || false) && (data.litellm?.healthy || false);
+      showToast(messages.join(' | '), healthy ? 'success' : 'error');
+
+      // Update UI
+      loadNemotronStatus();
+    } catch (err) {
+      showToast(`Health check failed: ${err}`, 'error');
+    }
+  }
+
+  async function showNemotronLogs() {
+    const modal = document.getElementById('nemotron-logs-modal');
+    const content = document.getElementById('nemotron-logs-content');
+    if (modal && content) {
+      modal.classList.add('show');
+      content.textContent = 'Loading logs...';
+      await refreshNemotronLogs();
+    }
+  }
+
+  async function refreshNemotronLogs() {
+    const content = document.getElementById('nemotron-logs-content');
+    if (!content) return;
+
+    try {
+      const response = await fetch('/nemotron/logs?lines=200');
+      const data = await response.json();
+      if (data.success) {
+        content.textContent = data.logs || 'No logs available';
+      } else {
+        content.textContent = `Error: ${data.error || 'Failed to fetch logs'}`;
+      }
+    } catch (err) {
+      content.textContent = `Error: ${err}`;
+    }
+  }
+
+  function hideNemotronLogsModal() {
+    const modal = document.getElementById('nemotron-logs-modal');
+    if (modal) modal.classList.remove('show');
+  }
+
+  async function restartLiteLLM() {
+    if (!confirm('Restart LiteLLM proxy?')) return;
+    showToast('Restarting LiteLLM...', 'info');
+
+    try {
+      const response = await fetch('/nemotron/litellm/restart', { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        showToast('LiteLLM restart initiated!', 'success');
+        setTimeout(loadNemotronStatus, 5000);
+      } else {
+        showToast(`Restart failed: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err}`, 'error');
+    }
+  }
+
+  // Extend confirmAction to handle nemotron-delete
+  const originalConfirmAction = confirmAction;
+  confirmAction = function(action, message) {
+    if (action === 'nemotron-delete') {
+      const modal = document.getElementById('confirm-modal');
+      const msgEl = document.getElementById('confirm-message');
+      const confirmBtn = document.getElementById('confirm-btn');
+      if (modal && msgEl && confirmBtn) {
+        msgEl.textContent = message;
+        confirmBtn.onclick = () => {
+          hideModal();
+          deleteNemotron();
+        };
+        modal.classList.add('show');
+      }
+    } else {
+      originalConfirmAction(action, message);
+    }
+  };
+
+  // Load Nemotron status when cluster tab is activated
+  const originalActivateTab = activateTab;
+  activateTab = function(target) {
+    originalActivateTab(target);
+    if (target === 'cluster') {
+      loadNemotronStatus();
+    }
+  };
+
+  // Initial load of Nemotron status
+  setTimeout(loadNemotronStatus, 1000);
 </script>
 
 <!-- Toast Container -->
