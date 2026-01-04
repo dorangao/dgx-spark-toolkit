@@ -1952,7 +1952,9 @@
                 <td>${pod.ready ? '✓' : '✗'}</td>
                 <td>${pod.restarts}</td>
                 <td style="font-size: 0.75rem; color: #64748b;">${pod.image}</td>
-                <td>
+                <td style="white-space: nowrap;">
+                  <button class="ops-btn sm secondary" onclick="showPodLogs('${ns}', '${pod.name}')" title="View logs" style="padding: 0.2rem 0.4rem;">📋</button>
+                  <button class="ops-btn sm primary" onclick="showPodExec('${ns}', '${pod.name}')" title="Execute command" style="padding: 0.2rem 0.4rem;">⌨️</button>
                   <button class="ops-btn sm danger" onclick="deletePod('${ns}', '${pod.name}')" title="Delete pod" style="padding: 0.2rem 0.4rem;">✕</button>
                 </td>
               </tr>
@@ -2295,6 +2297,184 @@
     } catch (err) {
       showToast(`Error: ${err}`, 'error');
     }
+  }
+
+  // ==========================================
+  // Pod Logs Functions
+  // ==========================================
+  
+  let currentLogsPod = { namespace: '', name: '' };
+  
+  async function showPodLogs(namespace, name) {
+    currentLogsPod = { namespace, name };
+    const modal = document.getElementById('pod-logs-modal');
+    const title = document.getElementById('pod-logs-title');
+    const content = document.getElementById('pod-logs-content');
+    const containerSelect = document.getElementById('pod-logs-container');
+    
+    if (!modal) return;
+    
+    title.textContent = `Logs: ${name}`;
+    content.textContent = 'Loading...';
+    containerSelect.innerHTML = '<option value="">Default</option>';
+    modal.classList.add('show');
+    
+    // Fetch containers
+    try {
+      const resp = await fetch(`/pod/${namespace}/${name}/containers`);
+      const data = await resp.json();
+      if (data.success && data.containers) {
+        data.containers.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c;
+          opt.textContent = c;
+          containerSelect.appendChild(opt);
+        });
+      }
+    } catch (e) { /* ignore */ }
+    
+    await refreshPodLogs();
+  }
+  
+  async function refreshPodLogs() {
+    const { namespace, name } = currentLogsPod;
+    if (!namespace || !name) return;
+    
+    const content = document.getElementById('pod-logs-content');
+    const container = document.getElementById('pod-logs-container')?.value || '';
+    const tail = document.getElementById('pod-logs-tail')?.value || '200';
+    const previous = document.getElementById('pod-logs-previous')?.checked || false;
+    
+    content.textContent = 'Loading logs...';
+    
+    try {
+      const params = new URLSearchParams({ tail });
+      if (container) params.append('container', container);
+      if (previous) params.append('previous', 'true');
+      
+      const response = await fetch(`/pod/${namespace}/${name}/logs?${params}`);
+      const data = await response.json();
+      
+      if (data.success) {
+        content.textContent = data.logs || '(No logs available)';
+        // Auto-scroll to bottom
+        content.scrollTop = content.scrollHeight;
+      } else {
+        content.textContent = `Error: ${data.error || 'Failed to fetch logs'}`;
+      }
+    } catch (err) {
+      content.textContent = `Error: ${err}`;
+    }
+  }
+  
+  function hidePodLogsModal() {
+    const modal = document.getElementById('pod-logs-modal');
+    if (modal) modal.classList.remove('show');
+    currentLogsPod = { namespace: '', name: '' };
+  }
+
+  // ==========================================
+  // Pod Exec Functions
+  // ==========================================
+  
+  let currentExecPod = { namespace: '', name: '' };
+  
+  async function showPodExec(namespace, name) {
+    currentExecPod = { namespace, name };
+    const modal = document.getElementById('pod-exec-modal');
+    const title = document.getElementById('pod-exec-title');
+    const containerSelect = document.getElementById('pod-exec-container');
+    const commandInput = document.getElementById('pod-exec-command');
+    const output = document.getElementById('pod-exec-output');
+    
+    if (!modal) return;
+    
+    title.textContent = `Exec: ${name}`;
+    containerSelect.innerHTML = '<option value="">Default</option>';
+    commandInput.value = '';
+    output.textContent = 'Output will appear here...';
+    modal.classList.add('show');
+    
+    // Focus on command input
+    setTimeout(() => commandInput.focus(), 100);
+    
+    // Fetch containers
+    try {
+      const resp = await fetch(`/pod/${namespace}/${name}/containers`);
+      const data = await resp.json();
+      if (data.success && data.containers) {
+        data.containers.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c;
+          opt.textContent = c;
+          containerSelect.appendChild(opt);
+        });
+      }
+    } catch (e) { /* ignore */ }
+  }
+  
+  function setExecCommand(cmd) {
+    const input = document.getElementById('pod-exec-command');
+    if (input) {
+      input.value = cmd;
+      input.focus();
+    }
+  }
+  
+  async function executePodCommand() {
+    const { namespace, name } = currentExecPod;
+    if (!namespace || !name) return;
+    
+    const container = document.getElementById('pod-exec-container')?.value || '';
+    const command = document.getElementById('pod-exec-command')?.value?.trim();
+    const output = document.getElementById('pod-exec-output');
+    
+    if (!command) {
+      showToast('Please enter a command', 'error');
+      return;
+    }
+    
+    output.textContent = `$ ${command}\n\nExecuting...`;
+    
+    try {
+      const response = await fetch(`/pod/${namespace}/${name}/exec`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ container, command })
+      });
+      const data = await response.json();
+      
+      let result = `$ ${command}\n\n`;
+      if (data.success) {
+        result += data.stdout || '(no output)';
+        if (data.stderr) {
+          result += `\n\n--- stderr ---\n${data.stderr}`;
+        }
+      } else {
+        result += `Error: ${data.error || 'Command failed'}`;
+        if (data.stderr) {
+          result += `\n\n--- stderr ---\n${data.stderr}`;
+        }
+        if (data.exit_code !== undefined) {
+          result += `\n\n(exit code: ${data.exit_code})`;
+        }
+      }
+      
+      output.textContent = result;
+    } catch (err) {
+      output.textContent = `$ ${command}\n\nError: ${err}`;
+    }
+  }
+  
+  function clearExecOutput() {
+    const output = document.getElementById('pod-exec-output');
+    if (output) output.textContent = 'Output will appear here...';
+  }
+  
+  function hidePodExecModal() {
+    const modal = document.getElementById('pod-exec-modal');
+    if (modal) modal.classList.remove('show');
+    currentExecPod = { namespace: '', name: '' };
   }
 
   // Native Wake-on-LAN
@@ -2681,6 +2861,77 @@
     <div class="modal-actions">
       <button class="ops-btn secondary" onclick="hideModal()">Cancel</button>
       <button class="ops-btn danger" id="confirm-btn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pod Logs Modal -->
+<div id="pod-logs-modal" class="modal-overlay" onclick="if(event.target === this) hidePodLogsModal()">
+  <div class="modal-content" style="max-width: 900px; width: 95%;">
+    <div class="modal-header">
+      <h3>📋 <span id="pod-logs-title">Pod Logs</span></h3>
+      <button class="modal-close" onclick="hidePodLogsModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; align-items: center;">
+        <label style="font-size: 0.85rem;">Container:</label>
+        <select id="pod-logs-container" style="padding: 0.3rem 0.5rem; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 0.85rem;">
+          <option value="">Default</option>
+        </select>
+        <label style="font-size: 0.85rem; margin-left: 1rem;">Lines:</label>
+        <select id="pod-logs-tail" style="padding: 0.3rem 0.5rem; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 0.85rem;">
+          <option value="100">100</option>
+          <option value="200" selected>200</option>
+          <option value="500">500</option>
+          <option value="1000">1000</option>
+        </select>
+        <label style="font-size: 0.85rem; margin-left: 1rem;">
+          <input type="checkbox" id="pod-logs-previous"> Previous
+        </label>
+        <button class="ops-btn sm primary" onclick="refreshPodLogs()" style="margin-left: auto;">🔄 Refresh</button>
+      </div>
+      <pre id="pod-logs-content" style="max-height: 500px; overflow: auto; background: #1e1e2e; color: #cdd6f4; padding: 1rem; border-radius: 8px; font-size: 0.8rem; font-family: 'Fira Code', 'SF Mono', Monaco, Consolas, monospace; white-space: pre-wrap; word-wrap: break-word;">Loading...</pre>
+    </div>
+    <div class="modal-footer">
+      <button class="ops-btn secondary" onclick="hidePodLogsModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pod Exec Modal -->
+<div id="pod-exec-modal" class="modal-overlay" onclick="if(event.target === this) hidePodExecModal()">
+  <div class="modal-content" style="max-width: 900px; width: 95%;">
+    <div class="modal-header">
+      <h3>⌨️ <span id="pod-exec-title">Execute in Pod</span></h3>
+      <button class="modal-close" onclick="hidePodExecModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem; align-items: center;">
+        <label style="font-size: 0.85rem;">Container:</label>
+        <select id="pod-exec-container" style="padding: 0.3rem 0.5rem; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 0.85rem; flex: 1; max-width: 200px;">
+          <option value="">Default</option>
+        </select>
+      </div>
+      <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+        <input type="text" id="pod-exec-command" placeholder="Enter command (e.g., ls -la, cat /etc/os-release)" 
+               style="flex: 1; padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid #e2e8f0; font-family: 'Fira Code', monospace; font-size: 0.9rem;"
+               onkeypress="if(event.key === 'Enter') executePodCommand()">
+        <button class="ops-btn primary" onclick="executePodCommand()">▶ Run</button>
+      </div>
+      <div style="font-size: 0.75rem; color: #64748b; margin-bottom: 0.5rem;">
+        Quick commands:
+        <button class="ops-btn sm secondary" onclick="setExecCommand('ls -la')" style="margin-left: 0.5rem; padding: 0.2rem 0.5rem;">ls -la</button>
+        <button class="ops-btn sm secondary" onclick="setExecCommand('df -h')" style="padding: 0.2rem 0.5rem;">df -h</button>
+        <button class="ops-btn sm secondary" onclick="setExecCommand('ps aux | head -20')" style="padding: 0.2rem 0.5rem;">ps aux</button>
+        <button class="ops-btn sm secondary" onclick="setExecCommand('cat /etc/os-release')" style="padding: 0.2rem 0.5rem;">os-release</button>
+        <button class="ops-btn sm secondary" onclick="setExecCommand('nvidia-smi')" style="padding: 0.2rem 0.5rem;">nvidia-smi</button>
+        <button class="ops-btn sm secondary" onclick="setExecCommand('env | sort')" style="padding: 0.2rem 0.5rem;">env</button>
+      </div>
+      <pre id="pod-exec-output" style="max-height: 400px; overflow: auto; background: #1e1e2e; color: #cdd6f4; padding: 1rem; border-radius: 8px; font-size: 0.8rem; font-family: 'Fira Code', 'SF Mono', Monaco, Consolas, monospace; white-space: pre-wrap; word-wrap: break-word;">Output will appear here...</pre>
+    </div>
+    <div class="modal-footer">
+      <button class="ops-btn secondary" onclick="clearExecOutput()">Clear</button>
+      <button class="ops-btn secondary" onclick="hidePodExecModal()">Close</button>
     </div>
   </div>
 </div>

@@ -668,6 +668,87 @@ def delete_pod(namespace: str, name: str):
     return jsonify({"success": ok, "message": output})
 
 
+@app.route("/pod/<namespace>/<name>/logs", methods=["GET"])
+def get_pod_logs(namespace: str, name: str):
+    """Get logs from a pod. Optional query params: container, tail, previous."""
+    from flask import request
+    container = request.args.get("container", "")
+    tail = request.args.get("tail", "200")
+    previous = request.args.get("previous", "false") == "true"
+    
+    cmd = ["logs", name, "-n", namespace, f"--tail={tail}"]
+    if container:
+        cmd.extend(["-c", container])
+    if previous:
+        cmd.append("--previous")
+    
+    ok, output = _run_kubectl(cmd, timeout=30)
+    if ok:
+        return jsonify({"success": True, "logs": output, "pod": name, "namespace": namespace})
+    else:
+        return jsonify({"success": False, "error": output, "pod": name, "namespace": namespace})
+
+
+@app.route("/pod/<namespace>/<name>/containers", methods=["GET"])
+def get_pod_containers(namespace: str, name: str):
+    """Get list of containers in a pod."""
+    ok, output = _run_kubectl([
+        "get", "pod", name, "-n", namespace,
+        "-o", "jsonpath={range .spec.containers[*]}{.name}{\"\\n\"}{end}"
+    ])
+    if ok:
+        containers = [c.strip() for c in output.strip().split("\n") if c.strip()]
+        return jsonify({"success": True, "containers": containers, "pod": name})
+    else:
+        return jsonify({"success": False, "error": output, "containers": []})
+
+
+@app.route("/pod/<namespace>/<name>/exec", methods=["POST"])
+def exec_pod_command(namespace: str, name: str):
+    """Execute a command in a pod container."""
+    from flask import request
+    data = request.get_json() or {}
+    container = data.get("container", "")
+    command = data.get("command", "")
+    
+    if not command:
+        return jsonify({"success": False, "error": "No command provided"})
+    
+    # Build kubectl exec command
+    cmd = ["exec", name, "-n", namespace]
+    if container:
+        cmd.extend(["-c", container])
+    cmd.append("--")
+    
+    # Parse command - support simple shell commands
+    # For safety, wrap in sh -c if it contains shell metacharacters
+    if any(c in command for c in ['|', '&', ';', '>', '<', '$', '`', '"', "'"]):
+        cmd.extend(["sh", "-c", command])
+    else:
+        cmd.extend(command.split())
+    
+    try:
+        result = subprocess.run(
+            ["kubectl"] + cmd,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        return jsonify({
+            "success": result.returncode == 0,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "exit_code": result.returncode,
+            "command": command,
+            "pod": name,
+            "namespace": namespace
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({"success": False, "error": "Command timed out (60s limit)"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
 # --------------------------------------------------------------------------
 # Native Wake-on-LAN Implementation
 # --------------------------------------------------------------------------
