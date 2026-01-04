@@ -857,7 +857,7 @@ def _get_nemotron_status() -> Dict[str, object]:
         "endpoints": {
             "vllm": f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}",
             "litellm": f"http://{LITELLM_IP}:{LITELLM_PORT}",
-            "ray_dashboard": "http://10.10.10.1:8265",
+            "ray_dashboard": f"http://{VLLM_DISTRIBUTED_IP}:8265",
         },
     }
     
