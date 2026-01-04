@@ -397,7 +397,7 @@ CLUSTER_STATUS_NAMESPACES = [
     ns.strip()
     for ns in os.environ.get(
         "CLUSTER_STATUS_NAMESPACES",
-        "default,llm-inference,kubernetes-dashboard,longhorn-system,metallb-system"
+        "default,llm-inference,kubernetes-dashboard,longhorn-system,metallb-system,kube-system,gpu-operator,network-operator,ray-system,ingress-nginx"
     ).split(",")
     if ns.strip()
 ]
