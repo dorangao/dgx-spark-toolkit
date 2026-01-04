@@ -92,11 +92,11 @@ spec:
               requests:
                 nvidia.com/gpu: 1
                 cpu: "8"
-                memory: "64Gi"
+                memory: "48Gi"
               limits:
                 nvidia.com/gpu: 1
                 cpu: "16"
-                memory: "96Gi"
+                memory: "64Gi"
             
             volumeMounts:
               - name: model-cache
@@ -108,10 +108,11 @@ spec:
           - name: model-cache
             persistentVolumeClaim:
               claimName: vllm-models-pvc
+          # Reduced from 16Gi - 8Gi is sufficient for model weight transfer
           - name: dshm
             emptyDir:
               medium: Memory
-              sizeLimit: "16Gi"
+              sizeLimit: "8Gi"
   
   # Worker node configuration
   workerGroupSpecs:
@@ -175,11 +176,11 @@ spec:
                 requests:
                   nvidia.com/gpu: 1
                   cpu: "8"
-                  memory: "64Gi"
+                  memory: "48Gi"
                 limits:
                   nvidia.com/gpu: 1
                   cpu: "16"
-                  memory: "96Gi"
+                  memory: "64Gi"
               
               volumeMounts:
                 - name: model-cache
@@ -192,10 +193,11 @@ spec:
             - name: model-cache
               emptyDir:
                 sizeLimit: "100Gi"
+            # Reduced shared memory - Ray workers don't need as much
             - name: dshm
               emptyDir:
                 medium: Memory
-                sizeLimit: "16Gi"
+                sizeLimit: "8Gi"
 ---
 # Service to expose vLLM API via fabric network
 # Note: vLLM runs on port 8080 via hostNetwork, accessible at 10.10.10.1:8080
