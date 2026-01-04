@@ -4,6 +4,8 @@ import concurrent.futures
 import json
 import os
 import re
+import socket
+import struct
 import subprocess
 import threading
 from datetime import datetime
@@ -41,10 +43,21 @@ def _bool_env(name: str, default: bool) -> bool:
 
 START_SCRIPT = Path(os.environ.get("K8S_START_SCRIPT", "~/dgx-spark-toolkit/scripts/start-k8s-cluster.sh")).expanduser()
 STOP_SCRIPT = Path(os.environ.get("K8S_STOP_SCRIPT", "~/dgx-spark-toolkit/scripts/stop-k8s-cluster.sh")).expanduser()
-CHECK_SCRIPT = Path(os.environ.get("K8S_CHECK_SCRIPT", "~/dgx-spark-toolkit/scripts/check-k8s-cluster.sh")).expanduser()
 SLEEP_SCRIPT = Path(os.environ.get("K8S_SLEEP_SCRIPT", "~/dgx-spark-toolkit/scripts/sleep-cluster.sh")).expanduser()
-WAKE_SCRIPT = Path(os.environ.get("K8S_WAKE_SCRIPT", "~/dgx-spark-toolkit/scripts/wake-cluster.sh")).expanduser()
 USE_SUDO = os.environ.get("K8S_UI_USE_SUDO", "1") not in {"0", "false", "False"}
+
+# Wake-on-LAN configuration (native implementation)
+WOL_NODES = {
+    "spark-2959": {
+        "mac": os.environ.get("WOL_SPARK_2959_MAC", "4c:bb:47:2e:29:59"),
+        "ip": os.environ.get("WOL_SPARK_2959_IP", "192.168.86.38"),
+    },
+    "spark-ba63": {
+        "mac": os.environ.get("WOL_SPARK_BA63_MAC", "4c:bb:47:2c:ba:63"),
+        "ip": os.environ.get("WOL_SPARK_BA63_IP", "192.168.86.39"),
+    },
+}
+WOL_BROADCAST = os.environ.get("WOL_BROADCAST", "192.168.86.255")
 MAX_HISTORY = _int_env("K8S_UI_HISTORY", 10)
 HOST_LIST = [
     host.strip()
@@ -326,30 +339,26 @@ def index():
         "index.html",
         history=RUN_HISTORY,
         latest_run=RUN_HISTORY[0] if RUN_HISTORY else None,
-        latest_action=_latest_entry({"Start", "Stop"}),
-        latest_check=_latest_entry({"Check"}),
+        latest_action=_latest_entry({"Start", "Stop", "Sleep"}),
         start_script=str(START_SCRIPT),
         stop_script=str(STOP_SCRIPT),
-        check_script=str(CHECK_SCRIPT),
+        sleep_script=str(SLEEP_SCRIPT),
         use_sudo=USE_SUDO,
         running=RUN_STATE["running"],
         status_hosts=HOST_LIST,
         tracking_default=TRACKING_DEFAULT,
-        auto_check_seconds=AUTO_CHECK_SECONDS,
+        wol_nodes=WOL_NODES,
     )
 
 
 def _resolve_action(action: str):
+    """Resolve script-based actions (start, stop, sleep only)."""
     if action == "start":
         return "Start", START_SCRIPT
     if action == "stop":
         return "Stop", STOP_SCRIPT
-    if action == "check":
-        return "Check", CHECK_SCRIPT
     if action == "sleep":
         return "Sleep", SLEEP_SCRIPT
-    if action == "wake":
-        return "Wake", WAKE_SCRIPT
     raise ValueError("Unknown action")
 
 
@@ -657,6 +666,117 @@ def delete_pod(namespace: str, name: str):
         "delete", "pod", name, "-n", namespace, "--grace-period=30"
     ])
     return jsonify({"success": ok, "message": output})
+
+
+# --------------------------------------------------------------------------
+# Native Wake-on-LAN Implementation
+# --------------------------------------------------------------------------
+
+def _send_wol_packet(mac_address: str, broadcast: str = None) -> tuple[bool, str]:
+    """Send a Wake-on-LAN magic packet to the specified MAC address."""
+    broadcast = broadcast or WOL_BROADCAST
+    
+    # Parse MAC address
+    mac_address = mac_address.replace(":", "").replace("-", "").upper()
+    if len(mac_address) != 12:
+        return False, f"Invalid MAC address format: {mac_address}"
+    
+    try:
+        mac_bytes = bytes.fromhex(mac_address)
+    except ValueError:
+        return False, f"Invalid MAC address: {mac_address}"
+    
+    # Build magic packet: 6 bytes of 0xFF followed by MAC address repeated 16 times
+    magic_packet = b'\xff' * 6 + mac_bytes * 16
+    
+    try:
+        # Send via UDP broadcast
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.sendto(magic_packet, (broadcast, 9))
+        sock.close()
+        return True, f"WoL packet sent to {':'.join(mac_address[i:i+2] for i in range(0, 12, 2))}"
+    except Exception as exc:
+        return False, f"Failed to send WoL packet: {exc}"
+
+
+def _check_host_reachable(ip: str, timeout: int = 2) -> bool:
+    """Check if a host is reachable via ping."""
+    try:
+        result = subprocess.run(
+            ["ping", "-c", "1", "-W", str(timeout), ip],
+            capture_output=True,
+            timeout=timeout + 1,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+@app.route("/wake", methods=["POST"])
+def wake_cluster():
+    """Wake cluster nodes using native Wake-on-LAN."""
+    from flask import request
+    data = request.get_json() or {}
+    target = data.get("target", "all")  # "all", "control", "worker", or specific node name
+    
+    results = []
+    nodes_to_wake = []
+    
+    if target == "all":
+        nodes_to_wake = list(WOL_NODES.keys())
+    elif target == "control":
+        nodes_to_wake = ["spark-2959"]
+    elif target == "worker":
+        nodes_to_wake = ["spark-ba63"]
+    elif target in WOL_NODES:
+        nodes_to_wake = [target]
+    else:
+        return jsonify({"success": False, "message": f"Unknown target: {target}", "results": []})
+    
+    # Wake control plane first (if included)
+    if "spark-2959" in nodes_to_wake:
+        node_info = WOL_NODES["spark-2959"]
+        ok, msg = _send_wol_packet(node_info["mac"])
+        results.append({
+            "node": "spark-2959",
+            "mac": node_info["mac"],
+            "success": ok,
+            "message": msg,
+        })
+    
+    # Then wake worker
+    if "spark-ba63" in nodes_to_wake:
+        node_info = WOL_NODES["spark-ba63"]
+        ok, msg = _send_wol_packet(node_info["mac"])
+        results.append({
+            "node": "spark-ba63",
+            "mac": node_info["mac"],
+            "success": ok,
+            "message": msg,
+        })
+    
+    all_success = all(r["success"] for r in results)
+    return jsonify({
+        "success": all_success,
+        "message": "Wake-on-LAN packets sent" if all_success else "Some WoL packets failed",
+        "results": results,
+    })
+
+
+@app.route("/wake/status", methods=["GET"])
+def wake_status():
+    """Check the wake status of cluster nodes."""
+    status = {}
+    for node_name, node_info in WOL_NODES.items():
+        reachable = _check_host_reachable(node_info["ip"])
+        status[node_name] = {
+            "ip": node_info["ip"],
+            "mac": node_info["mac"],
+            "reachable": reachable,
+            "status": "online" if reachable else "offline",
+        }
+    return jsonify(status)
 
 
 @app.route("/cluster-status-stream", methods=["GET"])

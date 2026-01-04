@@ -845,10 +845,10 @@
         <div class="actions">
           <button class="start action-btn" data-action="start" {% if running %}disabled{% endif %}>Start Cluster</button>
           <button class="stop action-btn" data-action="stop" {% if running %}disabled{% endif %}>Stop Cluster</button>
-          <button class="check action-btn" data-action="check">Check Cluster</button>
+          <button class="sleep action-btn" data-action="sleep" {% if running %}disabled{% endif %}>Sleep Cluster</button>
         </div>
         <p class="muted">Commands execute with sudo: <strong>{{ 'Yes' if use_sudo else 'No' }}</strong></p>
-        <p class="muted">Auto health checks: <strong>{{ (auto_check_seconds ~ 's interval') if auto_check_seconds else 'Disabled' }}</strong></p>
+        <p class="muted">Native status monitoring: <strong>SSE enabled</strong></p>
         {% if running %}
         <p class="muted"><strong>Command currently running: {{ history[0].label if history else 'in-progress' }}</strong></p>
         {% endif %}
@@ -884,15 +884,9 @@
         </small>
       </article>
       <article class="stat-card">
-        <small class="muted">Last health check</small>
-        {% if latest_check %}
-          {% set healthy = (latest_check.returncode == '0') %}
-          <strong>{{ 'Healthy' if healthy else 'Check failed' }}</strong>
-          <small class="muted">Completed {{ latest_check.finished }} (exit {{ latest_check.returncode }})</small>
-        {% else %}
-          <strong>Never</strong>
-          <small class="muted">Run the checker or enable auto health checks.</small>
-        {% endif %}
+        <small class="muted">Native monitoring</small>
+        <strong>SSE Active</strong>
+        <small class="muted">Real-time via Cluster Status tab</small>
       </article>
       <article class="stat-card">
         <small class="muted">Managed nodes</small>
@@ -920,8 +914,8 @@
         <div class="panel-grid overview-grid">
           <div class="panel-card fill-height">
             <div class="panel-head">
-              <h3>Operations</h3>
-              <span class="muted">Paths executed on start/stop</span>
+              <h3>Script Operations</h3>
+              <span class="muted">Shell scripts for cluster management</span>
             </div>
             <div class="panel-body">
               <div class="script-list">
@@ -934,14 +928,13 @@
                   <code>{{ stop_script }}</code>
                 </div>
                 <div>
-                  <span class="muted">Check script</span>
-                  <code>{{ check_script }}</code>
+                  <span class="muted">Sleep script</span>
+                  <code>{{ sleep_script }}</code>
                 </div>
               </div>
-              <p class="muted" style="margin-top:1rem;">Use the controls above to dispatch cluster actions. Status updates and logs will stream below.</p>
-              {% if auto_check_seconds %}
-                <p class="muted">Automatic cluster checks run every {{ auto_check_seconds }} seconds.</p>
-              {% endif %}
+              <p class="muted" style="margin-top:1rem;">
+                <strong>Tip:</strong> Use the <em>Cluster Status</em> tab for all operations including native Wake-on-LAN and real-time monitoring.
+              </p>
             </div>
           </div>
           <div class="panel-card fill-height" id="live-card">
@@ -950,7 +943,7 @@
               <span class="muted">Streaming command output</span>
             </div>
             <div class="panel-body">
-              <pre id="live-output">Awaiting command output. Start, stop, or check the cluster to stream logs.</pre>
+              <pre id="live-output">Awaiting command output. Use "Cluster Status" tab → Operations panel to run commands.</pre>
             </div>
           </div>
           <div class="panel-card fill-height">
@@ -958,17 +951,17 @@
               <h3>Latest Run</h3>
             </div>
             <div class="panel-body">
-              {% if latest %}
-                <p><strong>{{ latest.label }}</strong> exited with {{ latest.returncode }}.</p>
-                <p class="muted">{{ latest.started }} → {{ latest.finished }}</p>
-                <p class="muted"><em>{{ latest.command }}</em></p>
-                {% if latest.stdout %}
+              {% if latest_action %}
+                <p><strong>{{ latest_action.label }}</strong> exited with {{ latest_action.returncode }}.</p>
+                <p class="muted">{{ latest_action.started }} → {{ latest_action.finished }}</p>
+                <p class="muted"><em>{{ latest_action.command }}</em></p>
+                {% if latest_action.stdout %}
                   <h4>Output sample</h4>
-                  <pre>{{ latest.stdout|truncate(600, True) }}</pre>
+                  <pre>{{ latest_action.stdout|truncate(600, True) }}</pre>
                 {% endif %}
-                {% if latest.stderr %}
+                {% if latest_action.stderr %}
                   <h4>Errors</h4>
-                  <pre>{{ latest.stderr|truncate(400, True) }}</pre>
+                  <pre>{{ latest_action.stderr|truncate(400, True) }}</pre>
                 {% endif %}
               {% else %}
                 <p>No commands executed yet.</p>
@@ -984,42 +977,51 @@
           <h4><span class="icon">⚡</span> Cluster Operations</h4>
           <div class="ops-grid">
             <div class="ops-section">
-              <h5>Power Management</h5>
+              <h5>Power Management (Scripts)</h5>
               <div class="ops-buttons">
-                <button class="ops-btn success" onclick="runClusterAction('start')" id="ops-start">
+                <button class="ops-btn success" onclick="runClusterAction('start')" id="ops-start" title="Run start-k8s-cluster.sh">
                   ▶ Start
                 </button>
-                <button class="ops-btn danger" onclick="runClusterAction('stop')" id="ops-stop">
+                <button class="ops-btn danger" onclick="confirmAction('stop', 'Stop the cluster? This will drain nodes and stop kubelet.')" id="ops-stop" title="Run stop-k8s-cluster.sh">
                   ⏹ Stop
                 </button>
-                <button class="ops-btn purple" onclick="confirmAction('sleep', 'Suspend the cluster? This will put nodes into sleep mode.')" id="ops-sleep">
+                <button class="ops-btn purple" onclick="confirmAction('sleep', 'Suspend the cluster? This will put nodes into sleep mode.')" id="ops-sleep" title="Run sleep-cluster.sh">
                   🌙 Sleep
                 </button>
-                <button class="ops-btn warning" onclick="runClusterAction('wake')" id="ops-wake">
-                  ☀️ Wake
-                </button>
               </div>
+              <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.75rem;">
+                Start/Stop/Sleep run shell scripts via sudo
+              </p>
             </div>
             <div class="ops-section">
-              <h5>Health & Diagnostics</h5>
+              <h5>Wake (Native WoL)</h5>
               <div class="ops-buttons">
-                <button class="ops-btn primary" onclick="runClusterAction('check')" id="ops-check">
-                  🔍 Health Check
+                <button class="ops-btn warning" onclick="wakeCluster('all')" id="ops-wake-all" title="Send Wake-on-LAN to all nodes">
+                  ☀️ Wake All
                 </button>
-                <button class="ops-btn secondary" onclick="refreshClusterStatus()">
-                  🔄 Refresh Status
+                <button class="ops-btn sm secondary" onclick="wakeCluster('control')" title="Wake control plane only">
+                  spark-2959
+                </button>
+                <button class="ops-btn sm secondary" onclick="wakeCluster('worker')" title="Wake worker only">
+                  spark-ba63
                 </button>
               </div>
+              <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.75rem;">
+                Native Python Wake-on-LAN (no sudo needed)
+              </p>
             </div>
             <div class="ops-section">
               <h5>Quick Actions</h5>
               <div class="ops-buttons">
+                <button class="ops-btn primary" onclick="refreshClusterStatus()">
+                  🔄 Refresh Status
+                </button>
                 <button class="ops-btn secondary" onclick="showNodeActionsHelp()">
-                  📖 Node Actions
+                  📖 Help
                 </button>
               </div>
-              <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.8rem;">
-                Click ⋮ on nodes below for cordon/drain options
+              <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.75rem;">
+                Click ⋮ on nodes for cordon/drain options
               </p>
             </div>
           </div>
@@ -1992,6 +1994,55 @@
       }
     } catch (err) {
       showToast(`Error: ${err}`, 'error');
+    }
+  }
+
+  // Native Wake-on-LAN
+  async function wakeCluster(target = 'all') {
+    showToast(`Sending Wake-on-LAN to ${target}...`, 'info');
+    try {
+      const response = await fetch('/wake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        const nodes = data.results.map(r => r.node).join(', ');
+        showToast(`Wake packets sent to: ${nodes}`, 'success');
+        // Check status after a delay
+        setTimeout(checkWakeStatus, 5000);
+      } else {
+        showToast(`Wake failed: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err}`, 'error');
+    }
+  }
+
+  async function checkWakeStatus() {
+    try {
+      const response = await fetch('/wake/status');
+      const data = await response.json();
+      let online = [];
+      let offline = [];
+      for (const [node, info] of Object.entries(data)) {
+        if (info.reachable) {
+          online.push(node);
+        } else {
+          offline.push(node);
+        }
+      }
+      if (online.length > 0) {
+        showToast(`Online: ${online.join(', ')}`, 'success');
+      }
+      if (offline.length > 0) {
+        showToast(`Still waking: ${offline.join(', ')}`, 'info');
+        // Check again after 10 seconds
+        setTimeout(checkWakeStatus, 10000);
+      }
+    } catch (err) {
+      console.error('Wake status check failed:', err);
     }
   }
 </script>
