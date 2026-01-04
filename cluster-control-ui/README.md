@@ -59,7 +59,7 @@ Group=doran
 WorkingDirectory=/home/doran/dgx-spark-toolkit/cluster-control-ui
 Environment=FLASK_APP=app.py
 Environment=CLUSTER_UI_SECRET=replace-me
-ExecStart=/home/doran/dgx-spark-toolkit/cluster-control-ui/.venv/bin/flask run --host 0.0.0.0 --port 8080
+ExecStart=/home/doran/dgx-spark-toolkit/cluster-control-ui/.venv/bin/flask run --host 0.0.0.0 --port 8085
 Restart=on-failure
 
 [Install]
@@ -70,7 +70,32 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now cluster-control-ui.service
 ```
 
-default port 8080; adjust firewall rules accordingly.
+### Managing the service
+
+```bash
+# Check status
+sudo systemctl status cluster-control-ui.service
+
+# Stop the service
+sudo systemctl stop cluster-control-ui.service
+
+# Start the service
+sudo systemctl start cluster-control-ui.service
+
+# Restart the service
+sudo systemctl restart cluster-control-ui.service
+
+# View logs (follow live)
+sudo journalctl -u cluster-control-ui.service -f
+
+# View last 50 log lines
+sudo journalctl -u cluster-control-ui.service -n 50
+
+# Disable from starting at boot
+sudo systemctl disable cluster-control-ui.service
+```
+
+Default port is 8085; adjust firewall rules accordingly.
 
 ## Security Notes
 - This UI intentionally does **not** implement authentication. Restrict network access (e.g., SSH tunnel or VPN) or place it behind a reverse proxy with auth.
