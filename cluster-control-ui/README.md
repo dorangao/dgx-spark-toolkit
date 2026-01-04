@@ -48,19 +48,42 @@ Adjust the username/path as needed. This lets the web app invoke the scripts wit
 
 ## Systemd service example
 Create `/etc/systemd/system/cluster-control-ui.service`:
-```
+```ini
 [Unit]
 Description=Cluster Control UI
 After=network-online.target
+Wants=network-online.target
 
 [Service]
+Type=simple
 User=doran
 Group=doran
 WorkingDirectory=/home/doran/dgx-spark-toolkit/cluster-control-ui
+
+# Environment
 Environment=FLASK_APP=app.py
-Environment=CLUSTER_UI_SECRET=replace-me
+Environment=CLUSTER_UI_SECRET=replace-me-with-random-string
+Environment=PYTHONUNBUFFERED=1
+
+# Command
 ExecStart=/home/doran/dgx-spark-toolkit/cluster-control-ui/.venv/bin/flask run --host 0.0.0.0 --port 8085
+
+# Restart behavior
 Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/doran/dgx-spark-toolkit/cluster-control-ui
+PrivateTmp=true
+
+# Resource limits (optional)
+MemoryMax=512M
+CPUQuota=100%
 
 [Install]
 WantedBy=multi-user.target
