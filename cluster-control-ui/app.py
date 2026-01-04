@@ -887,22 +887,30 @@ def _get_nemotron_status() -> Dict[str, object]:
             "deployment_status": parts[1] if len(parts) > 1 else "unknown",
         }
     
+    # Check if distributed is stopped (workers scaled to 0)
+    if status["mode"] == "distributed" and status.get("ray_cluster"):
+        if status["ray_cluster"].get("desired_workers", 1) == 0:
+            status["mode"] = "distributed_stopped"
+    
     # Check for single-node deployment if no RayCluster
     if status["mode"] == "not_deployed":
         ok, output = _run_kubectl([
             "get", "deployment", "nemotron-vllm", "-n", NEMOTRON_NAMESPACE,
-            "-o", "jsonpath={.status.replicas},{.status.readyReplicas}"
+            "-o", "jsonpath={.spec.replicas},{.status.readyReplicas}"
         ])
         if ok and output.strip():
             parts = output.split(",")
-            replicas = int(parts[0]) if parts[0].isdigit() else 0
+            spec_replicas = int(parts[0]) if parts[0].isdigit() else 0
             ready = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-            if replicas > 0:
+            # Deployment exists - check if it's running or stopped
+            status["single_deployment"] = {
+                "replicas": spec_replicas,
+                "ready": ready,
+            }
+            if spec_replicas > 0:
                 status["mode"] = "single"
-                status["single_deployment"] = {
-                    "replicas": replicas,
-                    "ready": ready,
-                }
+            else:
+                status["mode"] = "single_stopped"
     
     # Get Ray pods
     ok, output = _run_kubectl([
@@ -1114,6 +1122,50 @@ def nemotron_delete():
     return jsonify({
         "success": all(r["success"] for r in results),
         "message": "Nemotron deployment deleted. Namespace, PVC, secrets, and LiteLLM retained.",
+        "results": results,
+    })
+
+
+@app.route("/nemotron/stop", methods=["POST"])
+def nemotron_stop():
+    """Stop Nemotron deployment (scale to 0 without deleting)."""
+    status = _get_nemotron_status()
+    results = []
+    
+    if status["mode"] == "not_deployed":
+        return jsonify({
+            "success": False,
+            "message": "No deployment to stop.",
+        })
+    
+    if status["mode"] == "distributed":
+        # For distributed: Delete the RayJob (stops vLLM serve) but keep RayCluster
+        ok, output = _run_kubectl_action([
+            "delete", "rayjob", "vllm-serve", "-n", NEMOTRON_NAMESPACE,
+            "--ignore-not-found"
+        ])
+        results.append({"step": "delete_rayjob", "success": ok, "output": output})
+        
+        # Scale down RayCluster workers to 0
+        ok, output = _run_kubectl_action([
+            "patch", "raycluster", "vllm-cluster", "-n", NEMOTRON_NAMESPACE,
+            "--type=json", "-p", '[{"op": "replace", "path": "/spec/workerGroupSpecs/0/replicas", "value": 0}, {"op": "replace", "path": "/spec/workerGroupSpecs/0/minReplicas", "value": 0}]'
+        ])
+        results.append({"step": "scale_workers", "success": ok, "output": output})
+        
+        message = "Distributed deployment stopped. RayCluster retained but scaled to 0 workers."
+    else:
+        # For single-node: Scale deployment to 0
+        ok, output = _run_kubectl_action([
+            "scale", "deployment", "nemotron-vllm", "-n", NEMOTRON_NAMESPACE,
+            "--replicas=0"
+        ])
+        results.append({"step": "scale_single", "success": ok, "output": output})
+        message = "Single-node deployment stopped (scaled to 0 replicas)."
+    
+    return jsonify({
+        "success": all(r["success"] for r in results),
+        "message": message,
         "results": results,
     })
 

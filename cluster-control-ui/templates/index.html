@@ -244,8 +244,18 @@
       color: #fff;
     }
 
+    .mode-badge.distributed-stopped {
+      background: #f59e0b;
+      color: #fff;
+    }
+
     .mode-badge.single {
       background: #3b82f6;
+      color: #fff;
+    }
+
+    .mode-badge.single-stopped {
+      background: #f59e0b;
       color: #fff;
     }
 
@@ -1253,13 +1263,15 @@
                 <button class="ops-btn secondary" onclick="deployNemotron('single')" id="ops-deploy-single" title="Deploy on single node">
                   📦 Single Node
                 </button>
+                <button class="ops-btn warning sm" onclick="confirmAction('nemotron-stop', 'Stop the Nemotron service? This will scale to 0 but keep the deployment.')" id="ops-nemotron-stop" title="Stop (scale to 0)">
+                  ⏹️ Stop
+                </button>
                 <button class="ops-btn danger sm" onclick="confirmAction('nemotron-delete', 'Delete the Nemotron deployment? This will remove the vLLM server.')" id="ops-nemotron-delete" title="Delete deployment">
                   🗑️ Delete
                 </button>
               </div>
               <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.75rem;">
-                Distributed uses KubeRay + Pipeline Parallelism
-              </p>
+                Distributed uses KubeRay + Pipeline Parallelism</p>
             </div>
             <div class="ops-section">
               <h5>Service Health</h5>
@@ -2357,7 +2369,9 @@
       modeBadge.className = `mode-badge ${status.mode.replace('_', '-')}`;
       const modeText = {
         'distributed': 'Distributed (KubeRay)',
+        'distributed_stopped': 'Distributed (Stopped)',
         'single': 'Single Node',
+        'single_stopped': 'Single Node (Stopped)',
         'not_deployed': 'Not Deployed',
       };
       modeBadge.textContent = modeText[status.mode] || status.mode;
@@ -2455,6 +2469,34 @@
         loadNemotronStatus();
       } else {
         showToast(`Delete failed: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err}`, 'error');
+    } finally {
+      opsInProgress = false;
+      document.querySelectorAll('.ops-btn').forEach(btn => btn.disabled = false);
+    }
+  }
+
+  async function stopNemotron() {
+    if (opsInProgress) {
+      showToast('Another operation is in progress...', 'error');
+      return;
+    }
+
+    opsInProgress = true;
+    document.querySelectorAll('.ops-btn').forEach(btn => btn.disabled = true);
+    showToast('Stopping Nemotron (scaling to 0)...', 'info');
+
+    try {
+      const response = await fetch('/nemotron/stop', { method: 'POST' });
+      const data = await response.json();
+
+      if (data.success) {
+        showToast('Nemotron stopped!', 'success');
+        loadNemotronStatus();
+      } else {
+        showToast(`Stop failed: ${data.message}`, 'error');
       }
     } catch (err) {
       showToast(`Error: ${err}`, 'error');
@@ -2591,10 +2633,10 @@
     showToast('Token displayed! Select and copy (Ctrl+C / Cmd+C)', 'info');
   }
 
-  // Extend confirmAction to handle nemotron-delete
+  // Extend confirmAction to handle nemotron-stop and nemotron-delete
   const originalConfirmAction = confirmAction;
   confirmAction = function(action, message) {
-    if (action === 'nemotron-delete') {
+    if (action === 'nemotron-delete' || action === 'nemotron-stop') {
       const modal = document.getElementById('confirm-modal');
       const msgEl = document.getElementById('confirm-message');
       const confirmBtn = document.getElementById('confirm-btn');
@@ -2602,7 +2644,11 @@
         msgEl.textContent = message;
         confirmBtn.onclick = () => {
           hideModal();
-          deleteNemotron();
+          if (action === 'nemotron-delete') {
+            deleteNemotron();
+          } else {
+            stopNemotron();
+          }
         };
         modal.classList.add('show');
       }
