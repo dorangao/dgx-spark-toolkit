@@ -42,6 +42,8 @@ def _bool_env(name: str, default: bool) -> bool:
 START_SCRIPT = Path(os.environ.get("K8S_START_SCRIPT", "~/dgx-spark-toolkit/scripts/start-k8s-cluster.sh")).expanduser()
 STOP_SCRIPT = Path(os.environ.get("K8S_STOP_SCRIPT", "~/dgx-spark-toolkit/scripts/stop-k8s-cluster.sh")).expanduser()
 CHECK_SCRIPT = Path(os.environ.get("K8S_CHECK_SCRIPT", "~/dgx-spark-toolkit/scripts/check-k8s-cluster.sh")).expanduser()
+SLEEP_SCRIPT = Path(os.environ.get("K8S_SLEEP_SCRIPT", "~/dgx-spark-toolkit/scripts/sleep-cluster.sh")).expanduser()
+WAKE_SCRIPT = Path(os.environ.get("K8S_WAKE_SCRIPT", "~/dgx-spark-toolkit/scripts/wake-cluster.sh")).expanduser()
 USE_SUDO = os.environ.get("K8S_UI_USE_SUDO", "1") not in {"0", "false", "False"}
 MAX_HISTORY = _int_env("K8S_UI_HISTORY", 10)
 HOST_LIST = [
@@ -344,6 +346,10 @@ def _resolve_action(action: str):
         return "Stop", STOP_SCRIPT
     if action == "check":
         return "Check", CHECK_SCRIPT
+    if action == "sleep":
+        return "Sleep", SLEEP_SCRIPT
+    if action == "wake":
+        return "Wake", WAKE_SCRIPT
     raise ValueError("Unknown action")
 
 
@@ -569,6 +575,88 @@ def _collect_cluster_status() -> Dict[str, object]:
 def cluster_status():
     """Get current cluster status snapshot."""
     return jsonify(_collect_cluster_status())
+
+
+# --------------------------------------------------------------------------
+# Kubernetes Node and Workload Operations
+# --------------------------------------------------------------------------
+
+def _run_kubectl_action(args: List[str], timeout: int = 30) -> tuple[bool, str]:
+    """Run kubectl action command and return (success, output)."""
+    try:
+        result = subprocess.run(
+            ["kubectl"] + args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        output = result.stdout.strip()
+        if result.returncode != 0:
+            output = result.stderr.strip() or output or "Command failed"
+        return result.returncode == 0, output
+    except subprocess.TimeoutExpired:
+        return False, "Command timed out"
+    except FileNotFoundError:
+        return False, "kubectl not found"
+    except Exception as exc:
+        return False, str(exc)
+
+
+@app.route("/node/<node_name>/cordon", methods=["POST"])
+def cordon_node(node_name: str):
+    """Cordon a node (mark as unschedulable)."""
+    ok, output = _run_kubectl_action(["cordon", node_name])
+    return jsonify({"success": ok, "message": output})
+
+
+@app.route("/node/<node_name>/uncordon", methods=["POST"])
+def uncordon_node(node_name: str):
+    """Uncordon a node (mark as schedulable)."""
+    ok, output = _run_kubectl_action(["uncordon", node_name])
+    return jsonify({"success": ok, "message": output})
+
+
+@app.route("/node/<node_name>/drain", methods=["POST"])
+def drain_node(node_name: str):
+    """Drain a node (evict all pods)."""
+    ok, output = _run_kubectl_action([
+        "drain", node_name,
+        "--ignore-daemonsets",
+        "--delete-emptydir-data",
+        "--force",
+        "--grace-period=30"
+    ], timeout=120)
+    return jsonify({"success": ok, "message": output})
+
+
+@app.route("/deployment/<namespace>/<name>/restart", methods=["POST"])
+def restart_deployment(namespace: str, name: str):
+    """Restart a deployment by triggering a rollout restart."""
+    ok, output = _run_kubectl_action([
+        "rollout", "restart", "deployment", name, "-n", namespace
+    ])
+    return jsonify({"success": ok, "message": output})
+
+
+@app.route("/deployment/<namespace>/<name>/scale", methods=["POST"])
+def scale_deployment(namespace: str, name: str):
+    """Scale a deployment to specified replicas."""
+    from flask import request
+    data = request.get_json() or {}
+    replicas = data.get("replicas", 1)
+    ok, output = _run_kubectl_action([
+        "scale", "deployment", name, "-n", namespace, f"--replicas={replicas}"
+    ])
+    return jsonify({"success": ok, "message": output})
+
+
+@app.route("/pod/<namespace>/<name>/delete", methods=["POST"])
+def delete_pod(namespace: str, name: str):
+    """Delete a pod (triggers restart if managed by deployment)."""
+    ok, output = _run_kubectl_action([
+        "delete", "pod", name, "-n", namespace, "--grace-period=30"
+    ])
+    return jsonify({"success": ok, "message": output})
 
 
 @app.route("/cluster-status-stream", methods=["GET"])

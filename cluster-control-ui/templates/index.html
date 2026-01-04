@@ -113,6 +113,222 @@
     .start { background: var(--success); color: #fff; }
     .stop { background: var(--danger); color: #fff; }
     .check { background: var(--accent); color: #fff; }
+    .sleep { background: #7c3aed; color: #fff; }
+    .wake { background: #f59e0b; color: #fff; }
+
+    /* Operations Panel Styles */
+    .ops-panel {
+      background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+      border: 1px solid #e2e8f0;
+    }
+
+    .ops-panel h4 {
+      margin: 0 0 1rem;
+      font-size: 1rem;
+      color: #334155;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .ops-panel h4 .icon {
+      font-size: 1.2rem;
+    }
+
+    .ops-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+
+    .ops-section {
+      background: #fff;
+      border-radius: 10px;
+      padding: 1rem;
+      border: 1px solid #e2e8f0;
+    }
+
+    .ops-section h5 {
+      margin: 0 0 0.75rem;
+      font-size: 0.85rem;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .ops-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .ops-btn {
+      padding: 0.5rem 1rem;
+      font-size: 0.85rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .ops-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .ops-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .ops-btn.primary { background: var(--accent); color: #fff; }
+    .ops-btn.success { background: var(--success); color: #fff; }
+    .ops-btn.danger { background: var(--danger); color: #fff; }
+    .ops-btn.warning { background: #f59e0b; color: #fff; }
+    .ops-btn.purple { background: #7c3aed; color: #fff; }
+    .ops-btn.secondary { background: #64748b; color: #fff; }
+
+    .ops-btn.sm {
+      padding: 0.35rem 0.75rem;
+      font-size: 0.75rem;
+    }
+
+    /* Action dropdown for nodes */
+    .node-actions {
+      position: relative;
+      display: inline-block;
+    }
+
+    .node-actions-btn {
+      background: #e2e8f0;
+      color: #475569;
+      border: none;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+
+    .node-actions-btn:hover {
+      background: #cbd5e1;
+    }
+
+    .node-actions-menu {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 100%;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+      min-width: 140px;
+      z-index: 100;
+      overflow: hidden;
+    }
+
+    .node-actions-menu.show {
+      display: block;
+    }
+
+    .node-actions-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 0.6rem 1rem;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: #334155;
+    }
+
+    .node-actions-menu button:hover {
+      background: #f1f5f9;
+    }
+
+    .node-actions-menu button.danger {
+      color: var(--danger);
+    }
+
+    /* Toast notifications */
+    .toast-container {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .toast {
+      background: #1e293b;
+      color: #fff;
+      padding: 0.75rem 1.25rem;
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+      animation: slideIn 0.3s ease;
+      max-width: 400px;
+    }
+
+    .toast.success { border-left: 4px solid #22c55e; }
+    .toast.error { border-left: 4px solid #ef4444; }
+    .toast.info { border-left: 4px solid #3b82f6; }
+
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    /* Modal for confirmations */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.show {
+      display: flex;
+    }
+
+    .modal-content {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.5rem;
+      max-width: 400px;
+      width: 90%;
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+    }
+
+    .modal-content h3 {
+      margin: 0 0 0.75rem;
+    }
+
+    .modal-content p {
+      color: #64748b;
+      margin: 0 0 1.5rem;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.75rem;
+    }
 
     .stat-grid {
       display: grid;
@@ -763,6 +979,53 @@
       </div>
 
       <div class="tab-content" id="tab-cluster">
+        <!-- Operations Panel -->
+        <div class="ops-panel">
+          <h4><span class="icon">⚡</span> Cluster Operations</h4>
+          <div class="ops-grid">
+            <div class="ops-section">
+              <h5>Power Management</h5>
+              <div class="ops-buttons">
+                <button class="ops-btn success" onclick="runClusterAction('start')" id="ops-start">
+                  ▶ Start
+                </button>
+                <button class="ops-btn danger" onclick="runClusterAction('stop')" id="ops-stop">
+                  ⏹ Stop
+                </button>
+                <button class="ops-btn purple" onclick="confirmAction('sleep', 'Suspend the cluster? This will put nodes into sleep mode.')" id="ops-sleep">
+                  🌙 Sleep
+                </button>
+                <button class="ops-btn warning" onclick="runClusterAction('wake')" id="ops-wake">
+                  ☀️ Wake
+                </button>
+              </div>
+            </div>
+            <div class="ops-section">
+              <h5>Health & Diagnostics</h5>
+              <div class="ops-buttons">
+                <button class="ops-btn primary" onclick="runClusterAction('check')" id="ops-check">
+                  🔍 Health Check
+                </button>
+                <button class="ops-btn secondary" onclick="refreshClusterStatus()">
+                  🔄 Refresh Status
+                </button>
+              </div>
+            </div>
+            <div class="ops-section">
+              <h5>Quick Actions</h5>
+              <div class="ops-buttons">
+                <button class="ops-btn secondary" onclick="showNodeActionsHelp()">
+                  📖 Node Actions
+                </button>
+              </div>
+              <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.8rem;">
+                Click ⋮ on nodes below for cordon/drain options
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cluster Status Panel -->
         <div class="panel-card">
           <div class="status-header">
             <div>
@@ -785,6 +1048,15 @@
               <p>Loading cluster status...</p>
             </div>
           </div>
+        </div>
+
+        <!-- Live Output Panel for Operations -->
+        <div class="panel-card" id="ops-output-panel" style="display: none; margin-top: 1rem;">
+          <div class="panel-head">
+            <h3>Operation Output</h3>
+            <button class="ops-btn sm secondary" onclick="hideOpsOutput()">✕ Close</button>
+          </div>
+          <pre id="ops-live-output" style="max-height: 300px; overflow-y: auto; margin-top: 1rem;">Awaiting operation...</pre>
         </div>
       </div>
 
@@ -1313,11 +1585,22 @@
 
     nodes.forEach(node => {
       const isReady = node.ready;
+      const nodeName = node.name;
       html += `
         <div class="node-card ${isReady ? 'ready' : 'not-ready'}">
-          <div class="node-name">
-            ${node.name}
-            <span class="node-badge ${isReady ? 'ready' : 'not-ready'}">${isReady ? 'Ready' : 'Not Ready'}</span>
+          <div class="node-name" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              ${nodeName}
+              <span class="node-badge ${isReady ? 'ready' : 'not-ready'}">${isReady ? 'Ready' : 'Not Ready'}</span>
+            </div>
+            <div class="node-actions">
+              <button class="node-actions-btn" onclick="event.stopPropagation(); toggleNodeMenu('${nodeName}')">⋮</button>
+              <div class="node-actions-menu" id="node-menu-${nodeName}">
+                <button onclick="nodeAction('${nodeName}', 'cordon')">🚫 Cordon</button>
+                <button onclick="nodeAction('${nodeName}', 'uncordon')">✅ Uncordon</button>
+                <button class="danger" onclick="if(confirm('Drain ${nodeName}? This will evict all pods.')) nodeAction('${nodeName}', 'drain')">⚠️ Drain</button>
+              </div>
+            </div>
           </div>
           <div class="node-info">
             <span><strong>Version:</strong> ${node.version || 'Unknown'}</span>
@@ -1355,7 +1638,7 @@
         if (nsData.pods && nsData.pods.length) {
           html += `
             <table class="resource-table">
-              <tr><th>Pod</th><th>Status</th><th>Ready</th><th>Restarts</th><th>Image</th></tr>
+              <tr><th>Pod</th><th>Status</th><th>Ready</th><th>Restarts</th><th>Image</th><th style="width: 50px;"></th></tr>
           `;
           nsData.pods.forEach(pod => {
             const statusClass = pod.phase.toLowerCase() === 'running' ? 'running' : 
@@ -1367,6 +1650,9 @@
                 <td>${pod.ready ? '✓' : '✗'}</td>
                 <td>${pod.restarts}</td>
                 <td style="font-size: 0.75rem; color: #64748b;">${pod.image}</td>
+                <td>
+                  <button class="ops-btn sm danger" onclick="deletePod('${ns}', '${pod.name}')" title="Delete pod" style="padding: 0.2rem 0.4rem;">✕</button>
+                </td>
               </tr>
             `;
           });
@@ -1396,7 +1682,7 @@
         if (nsData.deployments && nsData.deployments.length) {
           html += `
             <table class="resource-table" style="margin-top: 0.75rem;">
-              <tr><th>Deployment</th><th>Ready</th><th>Available</th></tr>
+              <tr><th>Deployment</th><th>Ready</th><th>Available</th><th style="width: 70px;">Actions</th></tr>
           `;
           nsData.deployments.forEach(deploy => {
             const isReady = deploy.ready === deploy.replicas && deploy.replicas > 0;
@@ -1405,6 +1691,9 @@
                 <td>${deploy.name}</td>
                 <td><span class="status-dot ${isReady ? 'ready' : 'not-ready'}"></span>${deploy.ready}/${deploy.replicas}</td>
                 <td>${deploy.available}</td>
+                <td>
+                  <button class="ops-btn sm secondary" onclick="restartDeployment('${ns}', '${deploy.name}')" title="Restart deployment">🔄</button>
+                </td>
               </tr>
             `;
           });
@@ -1518,6 +1807,209 @@
       startClusterTracking();
     }
   }
+
+  // ==========================================
+  // Cluster Operations Functions
+  // ==========================================
+
+  let opsInProgress = false;
+
+  function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(100%)';
+      setTimeout(() => toast.remove(), 300);
+    }, 4000);
+  }
+
+  function confirmAction(action, message) {
+    const modal = document.getElementById('confirm-modal');
+    const msgEl = document.getElementById('confirm-message');
+    const confirmBtn = document.getElementById('confirm-btn');
+    
+    if (modal && msgEl && confirmBtn) {
+      msgEl.textContent = message;
+      confirmBtn.onclick = () => {
+        hideModal();
+        runClusterAction(action);
+      };
+      modal.classList.add('show');
+    }
+  }
+
+  function hideModal() {
+    const modal = document.getElementById('confirm-modal');
+    if (modal) modal.classList.remove('show');
+  }
+
+  function showOpsOutput() {
+    const panel = document.getElementById('ops-output-panel');
+    if (panel) panel.style.display = 'block';
+  }
+
+  function hideOpsOutput() {
+    const panel = document.getElementById('ops-output-panel');
+    if (panel) panel.style.display = 'none';
+  }
+
+  async function runClusterAction(action) {
+    if (opsInProgress) {
+      showToast('Another operation is in progress...', 'error');
+      return;
+    }
+
+    opsInProgress = true;
+    const outputEl = document.getElementById('ops-live-output');
+    showOpsOutput();
+    
+    // Disable all ops buttons
+    document.querySelectorAll('.ops-btn').forEach(btn => btn.disabled = true);
+    
+    if (outputEl) {
+      outputEl.textContent = `Running ${action}...\n`;
+    }
+    
+    showToast(`Starting ${action} operation...`, 'info');
+
+    try {
+      const response = await fetch(`/run/${action}`, { method: 'POST' });
+      if (!response.ok) {
+        const error = await response.text();
+        if (outputEl) outputEl.textContent += `Error: ${error}\n`;
+        showToast(`Operation failed: ${error}`, 'error');
+        return;
+      }
+
+      if (response.body && response.body.getReader) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (outputEl) {
+            outputEl.textContent += decoder.decode(value).replace(/\x1b\[[0-9;]*m/g, '');
+            outputEl.scrollTop = outputEl.scrollHeight;
+          }
+        }
+      } else {
+        const text = await response.text();
+        if (outputEl) outputEl.textContent += text.replace(/\x1b\[[0-9;]*m/g, '');
+      }
+
+      showToast(`${action} operation completed!`, 'success');
+    } catch (err) {
+      if (outputEl) outputEl.textContent += `\nRequest failed: ${err}\n`;
+      showToast(`Operation failed: ${err}`, 'error');
+    } finally {
+      opsInProgress = false;
+      document.querySelectorAll('.ops-btn').forEach(btn => btn.disabled = false);
+    }
+  }
+
+  function refreshClusterStatus() {
+    if (clusterEventSource) {
+      clusterEventSource.close();
+      clusterEventSource = null;
+    }
+    startClusterTracking();
+    showToast('Refreshing cluster status...', 'info');
+  }
+
+  function showNodeActionsHelp() {
+    showToast('Click the ⋮ button on any node card to see available actions like Cordon, Uncordon, and Drain.', 'info');
+  }
+
+  // Node operations
+  async function nodeAction(node, action) {
+    showToast(`Running ${action} on ${node}...`, 'info');
+    try {
+      const response = await fetch(`/node/${node}/${action}`, { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        showToast(`${action} on ${node} completed!`, 'success');
+        refreshClusterStatus();
+      } else {
+        showToast(`Failed: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err}`, 'error');
+    }
+    closeAllNodeMenus();
+  }
+
+  function toggleNodeMenu(node) {
+    closeAllNodeMenus();
+    const menu = document.getElementById(`node-menu-${node}`);
+    if (menu) menu.classList.toggle('show');
+  }
+
+  function closeAllNodeMenus() {
+    document.querySelectorAll('.node-actions-menu').forEach(m => m.classList.remove('show'));
+  }
+
+  // Close menus when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.node-actions')) {
+      closeAllNodeMenus();
+    }
+  });
+
+  // Deployment/Pod operations
+  async function restartDeployment(namespace, name) {
+    showToast(`Restarting ${name}...`, 'info');
+    try {
+      const response = await fetch(`/deployment/${namespace}/${name}/restart`, { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        showToast(`Deployment ${name} restarted!`, 'success');
+      } else {
+        showToast(`Failed: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err}`, 'error');
+    }
+  }
+
+  async function deletePod(namespace, name) {
+    if (!confirm(`Delete pod ${name}? It will be recreated if managed by a deployment.`)) return;
+    showToast(`Deleting pod ${name}...`, 'info');
+    try {
+      const response = await fetch(`/pod/${namespace}/${name}/delete`, { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        showToast(`Pod ${name} deleted!`, 'success');
+        refreshClusterStatus();
+      } else {
+        showToast(`Failed: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err}`, 'error');
+    }
+  }
 </script>
+
+<!-- Toast Container -->
+<div id="toast-container" class="toast-container"></div>
+
+<!-- Confirmation Modal -->
+<div id="confirm-modal" class="modal-overlay" onclick="if(event.target === this) hideModal()">
+  <div class="modal-content">
+    <h3>Confirm Action</h3>
+    <p id="confirm-message">Are you sure?</p>
+    <div class="modal-actions">
+      <button class="ops-btn secondary" onclick="hideModal()">Cancel</button>
+      <button class="ops-btn danger" id="confirm-btn">Confirm</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
