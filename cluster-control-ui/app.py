@@ -18,6 +18,7 @@ from flask import (
     render_template,
     stream_with_context,
 )
+import time as _time
 
 BASE_DIR = Path(__file__).resolve().parent
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
@@ -372,11 +373,227 @@ def host_metrics():
     return jsonify(data)
 
 
+# --------------------------------------------------------------------------
+# Native Kubernetes Cluster Status Collection
+# --------------------------------------------------------------------------
+
+KUBECTL_TIMEOUT = _int_env("KUBECTL_TIMEOUT", 5)
+CLUSTER_STATUS_NAMESPACES = [
+    ns.strip()
+    for ns in os.environ.get(
+        "CLUSTER_STATUS_NAMESPACES",
+        "default,llm-inference,kubernetes-dashboard,longhorn-system,metallb-system"
+    ).split(",")
+    if ns.strip()
+]
+
+
+def _run_kubectl(args: List[str], timeout: int = None) -> tuple[bool, str]:
+    """Run kubectl command and return (success, output)."""
+    timeout = timeout or KUBECTL_TIMEOUT
+    try:
+        result = subprocess.run(
+            ["kubectl"] + args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode == 0:
+            return True, result.stdout.strip()
+        return False, result.stderr.strip() or result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return False, "Command timed out"
+    except FileNotFoundError:
+        return False, "kubectl not found"
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _collect_cluster_status() -> Dict[str, object]:
+    """Collect comprehensive Kubernetes cluster status."""
+    status = {
+        "collected": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "ok": False,
+        "api_server": {"healthy": False, "message": ""},
+        "nodes": [],
+        "namespaces": {},
+        "summary": {
+            "total_pods": 0,
+            "running_pods": 0,
+            "pending_pods": 0,
+            "failed_pods": 0,
+            "total_services": 0,
+            "total_deployments": 0,
+            "ready_deployments": 0,
+        },
+    }
+
+    # Check API server health
+    ok, output = _run_kubectl(["get", "--raw", "/healthz"], timeout=3)
+    if ok and output.strip().lower() == "ok":
+        status["api_server"]["healthy"] = True
+        status["api_server"]["message"] = "API server healthy"
+    else:
+        status["api_server"]["message"] = output or "API server unreachable"
+        return status
+
+    # Get nodes
+    ok, output = _run_kubectl([
+        "get", "nodes", "-o",
+        "jsonpath={range .items[*]}{.metadata.name},{.status.conditions[?(@.type==\"Ready\")].status},{.status.nodeInfo.kubeletVersion},{.status.nodeInfo.osImage},{.status.allocatable.cpu},{.status.allocatable.memory},{.status.conditions[?(@.type==\"Ready\")].lastHeartbeatTime}{\"\\n\"}{end}"
+    ])
+    if ok:
+        for line in output.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split(",")
+            if len(parts) >= 7:
+                status["nodes"].append({
+                    "name": parts[0],
+                    "ready": parts[1] == "True",
+                    "version": parts[2],
+                    "os": parts[3],
+                    "cpu": parts[4],
+                    "memory": parts[5],
+                    "last_heartbeat": parts[6],
+                })
+
+    # Get pods summary across all namespaces
+    ok, output = _run_kubectl([
+        "get", "pods", "-A", "-o",
+        "jsonpath={range .items[*]}{.metadata.namespace},{.status.phase}{\"\\n\"}{end}"
+    ])
+    if ok:
+        for line in output.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split(",")
+            if len(parts) >= 2:
+                status["summary"]["total_pods"] += 1
+                phase = parts[1].lower()
+                if phase == "running":
+                    status["summary"]["running_pods"] += 1
+                elif phase == "pending":
+                    status["summary"]["pending_pods"] += 1
+                elif phase in ("failed", "error"):
+                    status["summary"]["failed_pods"] += 1
+
+    # Get services count
+    ok, output = _run_kubectl(["get", "svc", "-A", "--no-headers"])
+    if ok:
+        status["summary"]["total_services"] = len([l for l in output.split("\n") if l.strip()])
+
+    # Get deployments summary
+    ok, output = _run_kubectl([
+        "get", "deployments", "-A", "-o",
+        "jsonpath={range .items[*]}{.status.replicas},{.status.readyReplicas}{\"\\n\"}{end}"
+    ])
+    if ok:
+        for line in output.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split(",")
+            status["summary"]["total_deployments"] += 1
+            if len(parts) >= 2 and parts[0] == parts[1] and parts[0]:
+                status["summary"]["ready_deployments"] += 1
+
+    # Get detailed namespace info for configured namespaces
+    for ns in CLUSTER_STATUS_NAMESPACES:
+        ns_data = {"pods": [], "services": [], "deployments": []}
+
+        # Pods in namespace
+        ok, output = _run_kubectl([
+            "get", "pods", "-n", ns, "-o",
+            "jsonpath={range .items[*]}{.metadata.name},{.status.phase},{.status.containerStatuses[0].ready},{.status.containerStatuses[0].restartCount},{.spec.containers[0].image}{\"\\n\"}{end}"
+        ])
+        if ok:
+            for line in output.strip().split("\n"):
+                if not line.strip():
+                    continue
+                parts = line.split(",")
+                if len(parts) >= 5:
+                    ns_data["pods"].append({
+                        "name": parts[0],
+                        "phase": parts[1],
+                        "ready": parts[2] == "true",
+                        "restarts": int(parts[3]) if parts[3].isdigit() else 0,
+                        "image": parts[4].split("/")[-1][:40],  # Short image name
+                    })
+
+        # Services in namespace
+        ok, output = _run_kubectl([
+            "get", "svc", "-n", ns, "-o",
+            "jsonpath={range .items[*]}{.metadata.name},{.spec.type},{.spec.clusterIP},{.status.loadBalancer.ingress[0].ip}{\"\\n\"}{end}"
+        ])
+        if ok:
+            for line in output.strip().split("\n"):
+                if not line.strip():
+                    continue
+                parts = line.split(",")
+                if len(parts) >= 3:
+                    ns_data["services"].append({
+                        "name": parts[0],
+                        "type": parts[1],
+                        "cluster_ip": parts[2],
+                        "external_ip": parts[3] if len(parts) > 3 and parts[3] else None,
+                    })
+
+        # Deployments in namespace
+        ok, output = _run_kubectl([
+            "get", "deployments", "-n", ns, "-o",
+            "jsonpath={range .items[*]}{.metadata.name},{.status.replicas},{.status.readyReplicas},{.status.availableReplicas}{\"\\n\"}{end}"
+        ])
+        if ok:
+            for line in output.strip().split("\n"):
+                if not line.strip():
+                    continue
+                parts = line.split(",")
+                if len(parts) >= 2:
+                    replicas = int(parts[1]) if parts[1].isdigit() else 0
+                    ready = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+                    ns_data["deployments"].append({
+                        "name": parts[0],
+                        "replicas": replicas,
+                        "ready": ready,
+                        "available": int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0,
+                    })
+
+        if ns_data["pods"] or ns_data["services"] or ns_data["deployments"]:
+            status["namespaces"][ns] = ns_data
+
+    status["ok"] = True
+    return status
+
+
+@app.route("/cluster-status", methods=["GET"])
+def cluster_status():
+    """Get current cluster status snapshot."""
+    return jsonify(_collect_cluster_status())
+
+
+@app.route("/cluster-status-stream", methods=["GET"])
+def cluster_status_stream():
+    """SSE endpoint for real-time cluster status streaming."""
+    def generate():
+        while True:
+            data = _collect_cluster_status()
+            yield f"data: {json.dumps(data)}\n\n"
+            _time.sleep(3)  # Cluster status every 3 seconds (less frequent than host metrics)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.route("/host-metrics-stream", methods=["GET"])
 def host_metrics_stream():
     """SSE endpoint for real-time host metrics streaming."""
-    import time as _time
-    
     def generate():
         while True:
             if not HOST_LIST:
@@ -394,7 +611,7 @@ def host_metrics_stream():
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
+            "X-Accel-Buffering": "no",
         },
     )
 

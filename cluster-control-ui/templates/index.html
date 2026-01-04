@@ -340,6 +340,264 @@
 
     canvas { max-width: 100%; }
 
+    /* Cluster Status Styles */
+    .cluster-status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1rem;
+    }
+
+    .status-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .api-status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-weight: 600;
+    }
+
+    .api-status.healthy {
+      background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+      color: #166534;
+    }
+
+    .api-status.unhealthy {
+      background: linear-gradient(135deg, #fee2e2, #fecaca);
+      color: #991b1b;
+    }
+
+    .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    .status-indicator.green {
+      background: #22c55e;
+      box-shadow: 0 0 8px #22c55e;
+    }
+
+    .status-indicator.red {
+      background: #ef4444;
+      box-shadow: 0 0 8px #ef4444;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .summary-card {
+      background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+      border-radius: 12px;
+      padding: 1rem;
+      text-align: center;
+      border: 1px solid #e2e8f0;
+    }
+
+    .summary-card .value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #1e293b;
+      line-height: 1.2;
+    }
+
+    .summary-card .value.success { color: #16a34a; }
+    .summary-card .value.warning { color: #d97706; }
+    .summary-card .value.danger { color: #dc2626; }
+
+    .summary-card .label {
+      font-size: 0.75rem;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-top: 0.25rem;
+    }
+
+    .node-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .node-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1rem;
+      border: 1px solid #e2e8f0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .node-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+    }
+
+    .node-card.ready::before {
+      background: linear-gradient(90deg, #22c55e, #16a34a);
+    }
+
+    .node-card.not-ready::before {
+      background: linear-gradient(90deg, #ef4444, #dc2626);
+    }
+
+    .node-card .node-name {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .node-card .node-badge {
+      font-size: 0.7rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      font-weight: 600;
+    }
+
+    .node-badge.ready {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .node-badge.not-ready {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .node-card .node-info {
+      font-size: 0.85rem;
+      color: #64748b;
+    }
+
+    .node-card .node-info span {
+      display: block;
+      margin: 0.25rem 0;
+    }
+
+    .namespace-section {
+      margin-top: 1.5rem;
+    }
+
+    .namespace-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .namespace-header h4 {
+      margin: 0;
+      font-size: 0.95rem;
+      color: #334155;
+    }
+
+    .namespace-header .ns-badge {
+      font-size: 0.7rem;
+      background: #e2e8f0;
+      color: #475569;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+    }
+
+    .namespace-header .expand-icon {
+      margin-left: auto;
+      color: #94a3b8;
+      transition: transform 0.2s;
+    }
+
+    .namespace-header.collapsed .expand-icon {
+      transform: rotate(-90deg);
+    }
+
+    .namespace-content {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .namespace-content.hidden {
+      display: none;
+    }
+
+    .resource-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    .resource-table th {
+      text-align: left;
+      padding: 0.5rem;
+      background: #e2e8f0;
+      font-weight: 600;
+      color: #475569;
+    }
+
+    .resource-table td {
+      padding: 0.5rem;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .resource-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .resource-table .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 0.5rem;
+    }
+
+    .resource-table .status-dot.running { background: #22c55e; }
+    .resource-table .status-dot.pending { background: #f59e0b; }
+    .resource-table .status-dot.failed { background: #ef4444; }
+    .resource-table .status-dot.ready { background: #22c55e; }
+    .resource-table .status-dot.not-ready { background: #f59e0b; }
+
+    .empty-state {
+      text-align: center;
+      padding: 2rem;
+      color: #94a3b8;
+    }
+
+    .empty-state svg {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 1rem;
+      opacity: 0.5;
+    }
+
     @media (max-width: 1024px) {
       .panel-grid.overview-grid {
         grid-template-columns: 1fr;
@@ -435,6 +693,7 @@
     <section class="tabbed-panel card">
       <div class="tab-bar">
         <button class="tab-btn active" data-tab-target="overview">Overview</button>
+        <button class="tab-btn" data-tab-target="cluster">Cluster Status</button>
         {% if status_hosts %}
           <button class="tab-btn" data-tab-target="utilization">Node Utilization</button>
         {% endif %}
@@ -498,6 +757,32 @@
               {% else %}
                 <p>No commands executed yet.</p>
               {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tab-cluster">
+        <div class="panel-card">
+          <div class="status-header">
+            <div>
+              <h3 style="margin: 0;">Kubernetes Cluster Status</h3>
+              <span class="muted">Real-time cluster monitoring via SSE</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 1rem;">
+              <span id="cluster-sse-status" class="muted" style="font-size: 0.8rem;"></span>
+              <label style="display: flex; align-items: center; gap: 0.4rem; font-weight: bold;">
+                <input type="checkbox" id="cluster-tracking-toggle" checked>
+                Auto-refresh
+              </label>
+            </div>
+          </div>
+          <div id="cluster-status-container">
+            <div class="empty-state">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+              <p>Loading cluster status...</p>
             </div>
           </div>
         </div>
@@ -946,6 +1231,291 @@
       trackingToggle.addEventListener('change', () => {
         applyTrackingState(trackingToggle.checked);
       });
+    }
+  }
+
+  // ==========================================
+  // Cluster Status SSE Streaming
+  // ==========================================
+  const clusterStatusContainer = document.getElementById('cluster-status-container');
+  const clusterTrackingToggle = document.getElementById('cluster-tracking-toggle');
+  const CLUSTER_TRACKING_KEY = 'cluster-ui-cluster-tracking';
+  let clusterEventSource = null;
+  let clusterTrackingEnabled = true;
+
+  function updateClusterSSEStatus(status, color) {
+    const statusEl = document.getElementById('cluster-sse-status');
+    if (statusEl) {
+      statusEl.textContent = status;
+      statusEl.style.color = color || 'inherit';
+    }
+  }
+
+  function renderClusterStatus(data) {
+    if (!clusterStatusContainer) return;
+    if (!data.ok) {
+      clusterStatusContainer.innerHTML = `
+        <div class="api-status unhealthy">
+          <div class="status-indicator red"></div>
+          <span>API Server: ${data.api_server?.message || 'Unreachable'}</span>
+        </div>
+        <div class="empty-state" style="margin-top: 2rem;">
+          <p>Unable to connect to Kubernetes API server</p>
+          <p class="muted">Check if the cluster is running and kubectl is configured</p>
+        </div>
+      `;
+      return;
+    }
+
+    const summary = data.summary || {};
+    const nodes = data.nodes || [];
+    const namespaces = data.namespaces || {};
+
+    let html = `
+      <div class="api-status healthy">
+        <div class="status-indicator green"></div>
+        <span>API Server Healthy</span>
+        <span class="muted" style="margin-left: auto; font-size: 0.8rem;">
+          Updated ${new Date(data.collected).toLocaleTimeString()}
+        </span>
+      </div>
+
+      <div class="summary-cards">
+        <div class="summary-card">
+          <div class="value">${nodes.length}</div>
+          <div class="label">Nodes</div>
+        </div>
+        <div class="summary-card">
+          <div class="value ${summary.running_pods === summary.total_pods ? 'success' : 'warning'}">${summary.running_pods}/${summary.total_pods}</div>
+          <div class="label">Running Pods</div>
+        </div>
+        <div class="summary-card">
+          <div class="value ${summary.pending_pods > 0 ? 'warning' : ''}">${summary.pending_pods}</div>
+          <div class="label">Pending</div>
+        </div>
+        <div class="summary-card">
+          <div class="value ${summary.failed_pods > 0 ? 'danger' : ''}">${summary.failed_pods}</div>
+          <div class="label">Failed</div>
+        </div>
+        <div class="summary-card">
+          <div class="value">${summary.total_services}</div>
+          <div class="label">Services</div>
+        </div>
+        <div class="summary-card">
+          <div class="value ${summary.ready_deployments === summary.total_deployments ? 'success' : 'warning'}">${summary.ready_deployments}/${summary.total_deployments}</div>
+          <div class="label">Deployments</div>
+        </div>
+      </div>
+
+      <h4 style="margin: 1rem 0 0.75rem; color: #334155;">Nodes</h4>
+      <div class="node-cards">
+    `;
+
+    nodes.forEach(node => {
+      const isReady = node.ready;
+      html += `
+        <div class="node-card ${isReady ? 'ready' : 'not-ready'}">
+          <div class="node-name">
+            ${node.name}
+            <span class="node-badge ${isReady ? 'ready' : 'not-ready'}">${isReady ? 'Ready' : 'Not Ready'}</span>
+          </div>
+          <div class="node-info">
+            <span><strong>Version:</strong> ${node.version || 'Unknown'}</span>
+            <span><strong>CPU:</strong> ${node.cpu || 'N/A'}</span>
+            <span><strong>Memory:</strong> ${node.memory || 'N/A'}</span>
+            <span><strong>OS:</strong> ${(node.os || 'Unknown').substring(0, 30)}</span>
+          </div>
+        </div>
+      `;
+    });
+
+    html += `</div>`;
+
+    // Namespaces
+    const nsKeys = Object.keys(namespaces);
+    if (nsKeys.length > 0) {
+      html += `<div class="namespace-section"><h4 style="margin: 0 0 0.75rem; color: #334155;">Workloads by Namespace</h4>`;
+      
+      nsKeys.forEach(ns => {
+        const nsData = namespaces[ns];
+        const podCount = nsData.pods?.length || 0;
+        const svcCount = nsData.services?.length || 0;
+        const deplCount = nsData.deployments?.length || 0;
+
+        html += `
+          <div class="namespace-header" onclick="toggleNamespace(this)">
+            <h4>${ns}</h4>
+            <span class="ns-badge">${podCount} pods, ${svcCount} svc, ${deplCount} deploy</span>
+            <span class="expand-icon">▼</span>
+          </div>
+          <div class="namespace-content">
+        `;
+
+        // Pods table
+        if (nsData.pods && nsData.pods.length) {
+          html += `
+            <table class="resource-table">
+              <tr><th>Pod</th><th>Status</th><th>Ready</th><th>Restarts</th><th>Image</th></tr>
+          `;
+          nsData.pods.forEach(pod => {
+            const statusClass = pod.phase.toLowerCase() === 'running' ? 'running' : 
+                               pod.phase.toLowerCase() === 'pending' ? 'pending' : 'failed';
+            html += `
+              <tr>
+                <td>${pod.name.substring(0, 35)}${pod.name.length > 35 ? '...' : ''}</td>
+                <td><span class="status-dot ${statusClass}"></span>${pod.phase}</td>
+                <td>${pod.ready ? '✓' : '✗'}</td>
+                <td>${pod.restarts}</td>
+                <td style="font-size: 0.75rem; color: #64748b;">${pod.image}</td>
+              </tr>
+            `;
+          });
+          html += `</table>`;
+        }
+
+        // Services table
+        if (nsData.services && nsData.services.length) {
+          html += `
+            <table class="resource-table" style="margin-top: 0.75rem;">
+              <tr><th>Service</th><th>Type</th><th>Cluster IP</th><th>External IP</th></tr>
+          `;
+          nsData.services.forEach(svc => {
+            html += `
+              <tr>
+                <td>${svc.name}</td>
+                <td>${svc.type}</td>
+                <td style="font-family: monospace; font-size: 0.8rem;">${svc.cluster_ip || '-'}</td>
+                <td style="font-family: monospace; font-size: 0.8rem;">${svc.external_ip || '-'}</td>
+              </tr>
+            `;
+          });
+          html += `</table>`;
+        }
+
+        // Deployments table
+        if (nsData.deployments && nsData.deployments.length) {
+          html += `
+            <table class="resource-table" style="margin-top: 0.75rem;">
+              <tr><th>Deployment</th><th>Ready</th><th>Available</th></tr>
+          `;
+          nsData.deployments.forEach(deploy => {
+            const isReady = deploy.ready === deploy.replicas && deploy.replicas > 0;
+            html += `
+              <tr>
+                <td>${deploy.name}</td>
+                <td><span class="status-dot ${isReady ? 'ready' : 'not-ready'}"></span>${deploy.ready}/${deploy.replicas}</td>
+                <td>${deploy.available}</td>
+              </tr>
+            `;
+          });
+          html += `</table>`;
+        }
+
+        html += `</div>`;
+      });
+
+      html += `</div>`;
+    }
+
+    clusterStatusContainer.innerHTML = html;
+  }
+
+  function toggleNamespace(header) {
+    header.classList.toggle('collapsed');
+    const content = header.nextElementSibling;
+    if (content) {
+      content.classList.toggle('hidden');
+    }
+  }
+
+  function startClusterTracking() {
+    if (!clusterStatusContainer) return;
+    
+    if (clusterEventSource) {
+      clusterEventSource.close();
+    }
+    
+    updateClusterSSEStatus('● Connecting...', '#f59e0b');
+    
+    clusterEventSource = new EventSource('/cluster-status-stream');
+    
+    clusterEventSource.onmessage = function(event) {
+      try {
+        const data = JSON.parse(event.data);
+        renderClusterStatus(data);
+        updateClusterSSEStatus('● Connected', '#22c55e');
+      } catch (err) {
+        console.error('Failed to parse cluster status:', err);
+      }
+    };
+    
+    clusterEventSource.onerror = function(event) {
+      if (clusterEventSource.readyState === EventSource.CLOSED) {
+        updateClusterSSEStatus('● Disconnected', '#ef4444');
+      } else if (clusterEventSource.readyState === EventSource.CONNECTING) {
+        updateClusterSSEStatus('● Reconnecting...', '#f59e0b');
+      }
+    };
+    
+    clusterEventSource.onopen = function() {
+      updateClusterSSEStatus('● Connected', '#22c55e');
+    };
+  }
+
+  function stopClusterTracking() {
+    if (clusterEventSource) {
+      clusterEventSource.close();
+      clusterEventSource = null;
+    }
+    updateClusterSSEStatus('', '');
+    if (clusterStatusContainer) {
+      clusterStatusContainer.innerHTML = `
+        <div class="empty-state">
+          <p>Cluster status monitoring disabled</p>
+          <p class="muted">Enable auto-refresh to see live status</p>
+        </div>
+      `;
+    }
+  }
+
+  // Initialize cluster tracking
+  if (clusterStatusContainer) {
+    let storedClusterPref = null;
+    try {
+      storedClusterPref = localStorage.getItem(CLUSTER_TRACKING_KEY);
+    } catch (err) {
+      storedClusterPref = null;
+    }
+    const initialCluster = storedClusterPref === null ? true : storedClusterPref === 'true';
+    clusterTrackingEnabled = initialCluster;
+    
+    if (clusterTrackingToggle) {
+      clusterTrackingToggle.checked = initialCluster;
+      clusterTrackingToggle.addEventListener('change', () => {
+        clusterTrackingEnabled = clusterTrackingToggle.checked;
+        if (clusterTrackingEnabled) {
+          startClusterTracking();
+        } else {
+          stopClusterTracking();
+        }
+        try {
+          localStorage.setItem(CLUSTER_TRACKING_KEY, String(clusterTrackingEnabled));
+        } catch (err) {}
+      });
+    }
+    
+    // Start tracking when switching to cluster tab
+    tabButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.tabTarget === 'cluster' && clusterTrackingEnabled && !clusterEventSource) {
+          startClusterTracking();
+        }
+      });
+    });
+    
+    // Auto-start if initially visible or just start it
+    if (initialCluster) {
+      startClusterTracking();
     }
   }
 </script>
