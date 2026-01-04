@@ -1,0 +1,79 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubernetes-dashboard-cluster-read
+  labels:
+    app.kubernetes.io/part-of: kubernetes-dashboard
+rules:
+  # Read-only access to all resources for viewing in dashboard
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - persistentvolumeclaims
+      - pods
+      - replicationcontrollers
+      - services
+      - nodes
+      - namespaces
+      - events
+      - secrets
+      - serviceaccounts
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources:
+      - pods/log
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources:
+      - daemonsets
+      - deployments
+      - replicasets
+      - statefulsets
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources:
+      - cronjobs
+      - jobs
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+      - ingressclasses
+      - networkpolicies
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
+      - volumeattachments
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - clusterroles
+      - clusterrolebindings
+      - roles
+      - rolebindings
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources:
+      - persistentvolumes
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubernetes-dashboard-cluster-read
+  labels:
+    app.kubernetes.io/part-of: kubernetes-dashboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubernetes-dashboard-cluster-read
+subjects:
+  - kind: ServiceAccount
+    name: kubernetes-dashboard-api
+    namespace: kubernetes-dashboard
+  - kind: ServiceAccount
+    name: kubernetes-dashboard-web
+    namespace: kubernetes-dashboard
+
