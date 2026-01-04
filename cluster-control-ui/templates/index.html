@@ -515,7 +515,8 @@
               <input type="checkbox" id="tracking-toggle">
               Enable performance tracking
             </label>
-            <small class="muted">Toggles live SSH polling (default off).</small>
+            <span id="sse-status" class="muted" style="font-size: 0.8rem;"></span>
+            <small class="muted">SSE streaming (server push, lower overhead)</small>
           </div>
           <div id="host-metrics">
             <p class="muted">Loading metrics for {{ status_hosts|join(', ') }}...</p>
@@ -577,9 +578,10 @@
   const hostHistory = {};
   const hostCharts = {};
   const MAX_HISTORY_POINTS = 120;
-  let metricsInterval = null;
+  let metricsEventSource = null;
   let trackingEnabled = false;
   let actionInProgress = false;
+  let lastMetricsUpdate = 0;
 
   const ANSI_REGEX = /\u001b\[[0-9;]*m/g;
 
@@ -778,6 +780,15 @@
         const memPercent = typeof mem.percent === 'number' ? mem.percent.toFixed(1) : '0';
         memRow.textContent = `Memory: ${usedMb} / ${totalMb} MiB (${memPercent}%)`;
         card.appendChild(memRow);
+        
+        // Show memory breakdown if available
+        if (typeof mem.app_used_mb === 'number' && typeof mem.cache_mb === 'number') {
+          const memBreakdown = document.createElement('div');
+          memBreakdown.className = 'metric-row muted';
+          memBreakdown.style.fontSize = '0.85rem';
+          memBreakdown.textContent = `↳ Apps: ${mem.app_used_mb} MiB, Cache: ${mem.cache_mb} MiB, Available: ${mem.available_mb || 0} MiB`;
+          card.appendChild(memBreakdown);
+        }
 
         if (entry.gpus && entry.gpus.length) {
           const table = document.createElement('table');
@@ -829,36 +840,78 @@
     });
   }
 
-  async function fetchHostMetrics() {
+  function handleMetricsData(entries) {
     if (!hostMetricsContainer) return;
-    try {
-      const resp = await fetch('/host-metrics');
-      if (!resp.ok) {
-        throw new Error(await resp.text());
-      }
-      const data = await resp.json();
-      const entries = Array.isArray(data) ? data : [];
-      entries.forEach(updateHistory);
-      renderHostMetrics(entries);
-    } catch (err) {
-      hostMetricsContainer.innerHTML = `<p class="error">Failed to load host metrics: ${err}</p>`;
+    lastMetricsUpdate = Date.now();
+    entries.forEach(updateHistory);
+    renderHostMetrics(entries);
+  }
+
+  function updateSSEStatus(status, color) {
+    const statusEl = document.getElementById('sse-status');
+    if (statusEl) {
+      statusEl.textContent = status;
+      statusEl.style.color = color || 'inherit';
     }
   }
 
   function startTracking() {
     if (!hostMetricsContainer) return;
-    if (metricsInterval) {
-      clearInterval(metricsInterval);
+    
+    // Close any existing connection
+    if (metricsEventSource) {
+      metricsEventSource.close();
     }
-    fetchHostMetrics();
-    metricsInterval = setInterval(fetchHostMetrics, 1000);
+    
+    // Show connecting state
+    hostMetricsContainer.innerHTML = '<p class="muted">Connecting to metrics stream...</p>';
+    updateSSEStatus('● Connecting...', '#f59e0b');
+    
+    // Create SSE connection
+    metricsEventSource = new EventSource('/host-metrics-stream');
+    
+    metricsEventSource.onmessage = function(event) {
+      try {
+        const data = JSON.parse(event.data);
+        const entries = Array.isArray(data) ? data : [];
+        handleMetricsData(entries);
+        updateSSEStatus('● Connected', '#22c55e');
+      } catch (err) {
+        console.error('Failed to parse metrics:', err);
+      }
+    };
+    
+    metricsEventSource.onerror = function(event) {
+      console.error('SSE connection error:', event);
+      // EventSource will auto-reconnect, but show status
+      if (metricsEventSource.readyState === EventSource.CLOSED) {
+        hostMetricsContainer.innerHTML = '<p class="error">Connection closed. Reconnecting...</p>';
+        updateSSEStatus('● Disconnected', '#ef4444');
+      } else if (metricsEventSource.readyState === EventSource.CONNECTING) {
+        updateSSEStatus('● Reconnecting...', '#f59e0b');
+        // Only show reconnecting if we had data before
+        if (lastMetricsUpdate > 0) {
+          const statusEl = hostMetricsContainer.querySelector('.host-meta');
+          if (statusEl) {
+            statusEl.textContent = 'Reconnecting...';
+          }
+        }
+      }
+    };
+    
+    metricsEventSource.onopen = function() {
+      console.log('SSE connection established');
+      updateSSEStatus('● Connected', '#22c55e');
+    };
   }
 
   function stopTracking() {
-    if (metricsInterval) {
-      clearInterval(metricsInterval);
-      metricsInterval = null;
+    if (metricsEventSource) {
+      metricsEventSource.close();
+      metricsEventSource = null;
     }
+    lastMetricsUpdate = 0;
+    updateSSEStatus('', '');
     if (hostMetricsContainer) {
       hostMetricsContainer.innerHTML = '<p class="muted">Performance tracking disabled.</p>';
     }

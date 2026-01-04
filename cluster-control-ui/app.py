@@ -110,15 +110,29 @@ def _memory_usage():
                 info[key.strip()] = int(parts[0])
     total_kb = info.get("MemTotal", 0)
     available_kb = info.get("MemAvailable", info.get("MemFree", 0))
+    buffers_kb = info.get("Buffers", 0)
+    cached_kb = info.get("Cached", 0)
+    sreclaimable_kb = info.get("SReclaimable", 0)
+    
+    # Total used = Total - Available
     used_kb = max(total_kb - available_kb, 0)
+    # Cache/buffer = Buffers + Cached + SReclaimable
+    cache_kb = buffers_kb + cached_kb + sreclaimable_kb
+    # Application memory = Used - Cache (approximate)
+    app_used_kb = max(used_kb - cache_kb, 0)
+    
     return {
         "total_mb": int(total_kb / 1024) if total_kb else 0,
         "used_mb": int(used_kb / 1024),
+        "available_mb": int(available_kb / 1024),
+        "cache_mb": int(cache_kb / 1024),
+        "app_used_mb": int(app_used_kb / 1024),
         "percent": round((used_kb / total_kb) * 100, 1) if total_kb else 0.0,
     }
 
 
 def _gpu_usage():
+    # First try standard query
     cmd = [
         "nvidia-smi",
         "--query-gpu=index,name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu",
@@ -137,19 +151,45 @@ def _gpu_usage():
         if len(parts) < 7:
             continue
         try:
+            mem_used = _safe_float(parts[4])
+            mem_total = _safe_float(parts[5])
             gpus.append(
                 {
                     "index": int(parts[0]),
                     "name": parts[1],
                     "util": _safe_float(parts[2], 0.0),
                     "memory_util": _safe_float(parts[3], 0.0),
-                    "memory_used": _safe_float(parts[4]),
-                    "memory_total": _safe_float(parts[5]),
+                    "memory_used": mem_used,
+                    "memory_total": mem_total,
                     "temperature": _safe_float(parts[6]),
                 }
             )
         except ValueError:
             continue
+    
+    # For GPUs like GB10 where memory query returns N/A, parse process memory from nvidia-smi
+    for gpu in gpus:
+        if gpu["memory_used"] is None or gpu["memory_total"] is None:
+            try:
+                proc_result = subprocess.run(
+                    ["nvidia-smi", "--query-compute-apps=pid,used_gpu_memory", "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True, check=True, timeout=2
+                )
+                total_proc_mem = 0.0
+                for proc_line in proc_result.stdout.strip().splitlines():
+                    proc_parts = proc_line.split(",")
+                    if len(proc_parts) >= 2:
+                        proc_mem = _safe_float(proc_parts[1].strip())
+                        if proc_mem:
+                            total_proc_mem += proc_mem
+                if total_proc_mem > 0:
+                    gpu["memory_used"] = total_proc_mem
+                    # GB10 has 128GB unified memory, estimate based on process usage
+                    if "GB10" in gpu.get("name", ""):
+                        gpu["memory_total"] = 131072.0  # 128 GB in MiB
+                        gpu["memory_util"] = round((total_proc_mem / 131072.0) * 100, 1)
+            except Exception:
+                pass
     return gpus, None
 
 
@@ -330,6 +370,33 @@ def host_metrics():
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         data = list(executor.map(_collect_host_metrics, HOST_LIST))
     return jsonify(data)
+
+
+@app.route("/host-metrics-stream", methods=["GET"])
+def host_metrics_stream():
+    """SSE endpoint for real-time host metrics streaming."""
+    import time as _time
+    
+    def generate():
+        while True:
+            if not HOST_LIST:
+                yield f"data: {json.dumps([])}\n\n"
+            else:
+                workers = min(len(HOST_LIST), 4)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+                    data = list(executor.map(_collect_host_metrics, HOST_LIST))
+                yield f"data: {json.dumps(data)}\n\n"
+            _time.sleep(1)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
 
 
 if __name__ == "__main__":
