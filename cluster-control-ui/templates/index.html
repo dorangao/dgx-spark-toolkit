@@ -1210,15 +1210,6 @@
   actionButtons.forEach(btn => {
     btn.addEventListener('click', () => runAction(btn.dataset.action));
   });
-  const autoCheckSeconds = {{ auto_check_seconds }};
-  if (typeof autoCheckSeconds === 'number' && autoCheckSeconds > 0) {
-    setInterval(() => {
-      if (document.hidden) {
-        return;
-      }
-      runAction('check', { silent: true });
-    }, autoCheckSeconds * 1000);
-  }
 
   function sanitizeId(value) {
     return (value || 'host').replace(/[^a-zA-Z0-9_-]/g, '_');
