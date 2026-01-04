@@ -2552,14 +2552,9 @@
       const data = await response.json();
       
       if (data.success && data.token) {
-        await navigator.clipboard.writeText(data.token);
-        btn.textContent = '✓';
-        btn.classList.add('copied');
-        showToast('Token copied to clipboard! Paste it in the K8s Dashboard login.', 'success');
-        setTimeout(() => {
-          btn.textContent = '🔑';
-          btn.classList.remove('copied');
-        }, 3000);
+        // Show token in modal for manual copy (clipboard API requires HTTPS)
+        showTokenModal(data.token);
+        btn.textContent = '🔑';
       } else {
         showToast(`Failed to get token: ${data.error}`, 'error');
         btn.textContent = '🔑';
@@ -2568,6 +2563,32 @@
       showToast(`Error: ${err}`, 'error');
       btn.textContent = '🔑';
     }
+  }
+
+  function showTokenModal(token) {
+    // Reuse the logs modal for token display
+    const modal = document.getElementById('nemotron-logs-modal');
+    const title = modal.querySelector('h3');
+    const content = document.getElementById('nemotron-logs-content');
+    
+    title.textContent = '🔑 K8s Dashboard Token';
+    content.textContent = token;
+    content.style.wordBreak = 'break-all';
+    content.style.userSelect = 'all';
+    content.style.cursor = 'text';
+    
+    modal.classList.add('show');
+    
+    // Select all text when clicking
+    content.onclick = () => {
+      const range = document.createRange();
+      range.selectNodeContents(content);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    };
+    
+    showToast('Token displayed! Select and copy (Ctrl+C / Cmd+C)', 'info');
   }
 
   // Extend confirmAction to handle nemotron-delete
