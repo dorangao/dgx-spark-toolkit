@@ -3,29 +3,60 @@
 A lightweight Flask web app that runs on the control-plane host (outside the Kubernetes cluster) and exposes buttons to execute `~/bin/start-k8s-cluster.sh` and `~/bin/stop-k8s-cluster.sh`. Output streams live in the browser while the script is running, buttons disable to prevent concurrent runs, and a history of recent executions remains visible.
 
 ## Features
-- Minimal HTML UI with “Start”/“Stop”/“Check” buttons that disable while a command is in-flight.
+- Minimal HTML UI with "Start"/"Stop"/"Check" buttons that disable while a command is in-flight.
 - Live log streaming directly from the underlying script plus a command history once it finishes.
 - Optional automated health checks that stream output from `check-k8s-cluster.sh`.
 - Configurable script paths, sudo usage, and history length via environment variables.
 - Works with `sudo` so long as you grant passwordless sudo to the scripts (recommended via `/etc/sudoers.d/cluster-ui`).
 
-## Quick Start
+## Installation (Production)
+
+The install script automatically sets up a production instance in `/opt/cluster-control-ui` with systemd service:
+
 ```bash
-cd ~/cluster-control-ui
+# Install with defaults (port 8085)
+sudo ./install.sh
+
+# Install on custom port
+sudo ./install.sh --port 8090
+
+# Install to custom directory
+sudo ./install.sh --install-dir /srv/cluster-ui
+
+# Uninstall
+sudo ./install.sh --uninstall
+```
+
+### Install options
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--user USER` | Current user | User to run the service as |
+| `--port PORT` | `8085` | Port for the production service |
+| `--install-dir DIR` | `/opt/cluster-control-ui` | Installation directory |
+| `--uninstall` | - | Remove the installation |
+
+After installation, the service is available at `http://<host-ip>:8085`.
+
+## Development Setup
+
+For local development, run Flask directly on port **8080** (separate from production port 8085):
+
+```bash
+cd ~/dgx-spark-toolkit/cluster-control-ui
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 export FLASK_APP=app.py
-export CLUSTER_UI_SECRET="choose-a-random-secret"
-# Optional overrides:
-# export K8S_START_SCRIPT=/home/doran/bin/start-k8s-cluster.sh
-# export K8S_STOP_SCRIPT=/home/doran/bin/stop-k8s-cluster.sh
-# export K8S_CHECK_SCRIPT=/home/doran/bin/check-k8s-cluster.sh
-# export K8S_UI_USE_SUDO=1
-# export CLUSTER_UI_AUTO_CHECK_SECONDS=900
+export CLUSTER_UI_SECRET="dev-secret"
 flask run --host 0.0.0.0 --port 8080
 ```
 Then visit `http://<control-plane-ip>:8080/` from your browser.
+
+| Mode | Port | Location |
+| --- | --- | --- |
+| Development | 8080 | Source directory |
+| Production | 8085 | `/opt/cluster-control-ui` |
 
 ## Environment Variables
 | Variable | Default | Description |
@@ -46,8 +77,9 @@ doran ALL=(ALL) NOPASSWD: /home/doran/bin/start-k8s-cluster.sh, /home/doran/bin/
 ```
 Adjust the username/path as needed. This lets the web app invoke the scripts without prompting for a password.
 
-## Systemd service example
-Create `/etc/systemd/system/cluster-control-ui.service`:
+## Manual Systemd Setup (Alternative)
+
+If you prefer manual setup instead of `install.sh`, create `/etc/systemd/system/cluster-control-ui.service`:
 ```ini
 [Unit]
 Description=Cluster Control UI
