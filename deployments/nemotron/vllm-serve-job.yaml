@@ -49,7 +49,7 @@ spec:
     cmd = [
         'vllm', 'serve', 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16',
         '--host', '0.0.0.0',
-        '--port', '8000',
+        '--port', '8081',
         '--trust-remote-code',
         '--dtype', 'bfloat16',
         '--distributed-executor-backend', 'ray',
