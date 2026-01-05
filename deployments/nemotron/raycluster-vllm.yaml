@@ -87,6 +87,20 @@ spec:
               # Disable CUDA graphs for Blackwell stability
               - name: VLLM_USE_CUDA_GRAPH
                 value: "0"
+              # NCCL configuration for fabric network
+              - name: NCCL_SOCKET_IFNAME
+                value: "^lo,docker"
+              - name: NCCL_IB_DISABLE
+                value: "1"
+              - name: NCCL_DEBUG
+                value: "WARN"
+              - name: NCCL_P2P_DISABLE
+                value: "1"
+              - name: GLOO_SOCKET_IFNAME
+                value: "enP7s7,enp1s0f1np1"
+              # Force NCCL to use TCP/socket communication
+              - name: NCCL_NET
+                value: "Socket"
             
             resources:
               requests:
@@ -171,6 +185,20 @@ spec:
                   value: "10.10.10.1:6379"
                 - name: VLLM_USE_CUDA_GRAPH
                   value: "0"
+                # NCCL configuration for fabric network
+                - name: NCCL_SOCKET_IFNAME
+                  value: "^lo,docker"
+                - name: NCCL_IB_DISABLE
+                  value: "1"
+                - name: NCCL_DEBUG
+                  value: "WARN"
+                - name: NCCL_P2P_DISABLE
+                  value: "1"
+                - name: GLOO_SOCKET_IFNAME
+                  value: "enP7s7,enp1s0f1np1"
+                # Force NCCL to use TCP/socket communication
+                - name: NCCL_NET
+                  value: "Socket"
               
               resources:
                 requests:
