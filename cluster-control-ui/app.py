@@ -1277,6 +1277,13 @@ def nemotron_start():
         ])
         results.append({"step": "scale_workers", "success": ok, "output": output})
         
+        # Delete existing RayJob first (it may be in Succeeded/Failed state)
+        ok, output = _run_kubectl_action([
+            "delete", "rayjob", "vllm-serve", "-n", NEMOTRON_NAMESPACE,
+            "--ignore-not-found"
+        ])
+        results.append({"step": "delete_old_rayjob", "success": ok, "output": output})
+        
         # Re-apply the vLLM serve job
         serve_file = NEMOTRON_DEPLOYMENT_DIR / "vllm-serve-job.yaml"
         if serve_file.exists():
@@ -1304,6 +1311,40 @@ def nemotron_start():
     return jsonify({
         "success": all(r["success"] for r in results),
         "message": message,
+        "results": results,
+    })
+
+
+@app.route("/nemotron/restart", methods=["POST"])
+def nemotron_restart():
+    """Restart vLLM serve job (delete and re-apply)."""
+    status = _get_nemotron_status()
+    results = []
+    
+    if status["mode"] not in ("distributed", "distributed_stopped"):
+        return jsonify({
+            "success": False,
+            "message": "Restart only available for distributed deployment.",
+        })
+    
+    # Delete existing RayJob
+    ok, output = _run_kubectl_action([
+        "delete", "rayjob", "vllm-serve", "-n", NEMOTRON_NAMESPACE,
+        "--ignore-not-found"
+    ])
+    results.append({"step": "delete_rayjob", "success": ok, "output": output})
+    
+    # Re-apply the vLLM serve job
+    serve_file = NEMOTRON_DEPLOYMENT_DIR / "vllm-serve-job.yaml"
+    if serve_file.exists():
+        ok, output = _run_kubectl_action(["apply", "-f", str(serve_file)], timeout=30)
+        results.append({"step": "apply_serve_job", "success": ok, "output": output})
+    else:
+        results.append({"step": "apply_serve_job", "success": False, "output": f"Job file not found: {serve_file}"})
+    
+    return jsonify({
+        "success": all(r["success"] for r in results),
+        "message": "vLLM serve job restarted. Model loading may take several minutes.",
         "results": results,
     })
 

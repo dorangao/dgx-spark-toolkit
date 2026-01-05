@@ -1282,12 +1282,15 @@
                 <button class="ops-btn secondary" onclick="showNemotronLogs()" id="ops-nemotron-logs">
                   📋 View Logs
                 </button>
+                <button class="ops-btn warning sm" onclick="restartVLLM()" title="Restart vLLM serve job">
+                  🔄 vLLM
+                </button>
                 <button class="ops-btn secondary sm" onclick="restartLiteLLM()" title="Restart LiteLLM proxy">
                   🔄 LiteLLM
                 </button>
               </div>
               <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.75rem;">
-                Check vLLM + LiteLLM endpoints
+                Restart vLLM if stuck/failed
               </p>
             </div>
             <div class="ops-section">
@@ -2843,6 +2846,37 @@
   function hideNemotronLogsModal() {
     const modal = document.getElementById('nemotron-logs-modal');
     if (modal) modal.classList.remove('show');
+  }
+
+  async function restartVLLM() {
+    if (!confirm('Restart vLLM serve job? This will delete and re-create the job. Model loading may take several minutes.')) return;
+    
+    if (opsInProgress) {
+      showToast('Another operation is in progress...', 'error');
+      return;
+    }
+
+    opsInProgress = true;
+    document.querySelectorAll('.ops-btn').forEach(btn => btn.disabled = true);
+    showToast('Restarting vLLM serve job...', 'info');
+
+    try {
+      const response = await fetch('/nemotron/restart', { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        showToast('vLLM restart initiated! Model loading may take several minutes.', 'success');
+        setTimeout(loadNemotronStatus, 5000);
+        setTimeout(loadNemotronStatus, 30000);
+        setTimeout(loadNemotronStatus, 60000);
+      } else {
+        showToast(`Restart failed: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err}`, 'error');
+    } finally {
+      opsInProgress = false;
+      document.querySelectorAll('.ops-btn').forEach(btn => btn.disabled = false);
+    }
   }
 
   async function restartLiteLLM() {
