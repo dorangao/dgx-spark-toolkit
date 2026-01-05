@@ -1263,10 +1263,10 @@
                 <button class="ops-btn secondary" onclick="deployNemotron('single')" id="ops-deploy-single" title="Deploy on single node">
                   📦 Single Node
                 </button>
-                <button class="ops-btn warning sm" onclick="confirmAction('nemotron-stop', 'Stop the Nemotron service? This will scale to 0 but keep the deployment.')" id="ops-nemotron-stop" title="Stop (scale to 0)">
+                <button class="ops-btn warning sm" onclick="toggleNemotronRunning()" id="ops-nemotron-startstop" title="Start/Stop deployment" disabled>
                   ⏹️ Stop
                 </button>
-                <button class="ops-btn danger sm" onclick="confirmAction('nemotron-delete', 'Delete the Nemotron deployment? This will remove the vLLM server.')" id="ops-nemotron-delete" title="Delete deployment">
+                <button class="ops-btn danger sm" onclick="confirmAction('nemotron-delete', 'Delete the Nemotron deployment? This will remove the vLLM server.')" id="ops-nemotron-delete" title="Delete deployment" disabled>
                   🗑️ Delete
                 </button>
               </div>
@@ -2542,7 +2542,12 @@
     }
   }
 
+  // Track current Nemotron mode globally
+  let currentNemotronMode = 'not_deployed';
+
   function updateNemotronUI(status) {
+    currentNemotronMode = status.mode;
+    
     // Update mode badge
     const modeBadge = document.getElementById('nemotron-mode-badge');
     if (modeBadge) {
@@ -2555,6 +2560,33 @@
         'not_deployed': 'Not Deployed',
       };
       modeBadge.textContent = modeText[status.mode] || status.mode;
+    }
+
+    // Update Start/Stop button based on mode
+    const startStopBtn = document.getElementById('ops-nemotron-startstop');
+    const deleteBtn = document.getElementById('ops-nemotron-delete');
+    if (startStopBtn) {
+      const isRunning = status.mode === 'distributed' || status.mode === 'single';
+      const isStopped = status.mode === 'distributed_stopped' || status.mode === 'single_stopped';
+      const isDeployed = isRunning || isStopped;
+      
+      // Enable/disable based on deployment state
+      startStopBtn.disabled = !isDeployed;
+      if (deleteBtn) deleteBtn.disabled = !isDeployed;
+      
+      if (isRunning) {
+        startStopBtn.innerHTML = '⏹️ Stop';
+        startStopBtn.className = 'ops-btn warning sm';
+        startStopBtn.title = 'Stop (scale to 0)';
+      } else if (isStopped) {
+        startStopBtn.innerHTML = '▶️ Start';
+        startStopBtn.className = 'ops-btn success sm';
+        startStopBtn.title = 'Start (scale back up)';
+      } else {
+        startStopBtn.innerHTML = '⏹️ Stop';
+        startStopBtn.className = 'ops-btn warning sm';
+        startStopBtn.title = 'Deploy first';
+      }
     }
 
     // Update health indicators
@@ -2686,6 +2718,72 @@
     }
   }
 
+  async function startNemotron() {
+    if (opsInProgress) {
+      showToast('Another operation is in progress...', 'error');
+      return;
+    }
+
+    opsInProgress = true;
+    document.querySelectorAll('.ops-btn').forEach(btn => btn.disabled = true);
+    showToast('Starting Nemotron (scaling up)...', 'info');
+
+    try {
+      const response = await fetch('/nemotron/start', { method: 'POST' });
+      const data = await response.json();
+
+      if (data.success) {
+        showToast('Nemotron starting! Model loading may take several minutes.', 'success');
+        // Poll status more frequently while starting
+        setTimeout(loadNemotronStatus, 5000);
+        setTimeout(loadNemotronStatus, 15000);
+        setTimeout(loadNemotronStatus, 30000);
+      } else {
+        showToast(`Start failed: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err}`, 'error');
+    } finally {
+      opsInProgress = false;
+      document.querySelectorAll('.ops-btn').forEach(btn => btn.disabled = false);
+    }
+  }
+
+  function toggleNemotronRunning() {
+    const isRunning = currentNemotronMode === 'distributed' || currentNemotronMode === 'single';
+    const isStopped = currentNemotronMode === 'distributed_stopped' || currentNemotronMode === 'single_stopped';
+    
+    if (isRunning) {
+      // Currently running, confirm stop
+      const modal = document.getElementById('confirm-modal');
+      const msgEl = document.getElementById('confirm-message');
+      const confirmBtn = document.getElementById('confirm-btn');
+      if (modal && msgEl && confirmBtn) {
+        msgEl.textContent = 'Stop the Nemotron service? This will scale to 0 but keep the deployment.';
+        confirmBtn.onclick = () => {
+          hideModal();
+          stopNemotron();
+        };
+        modal.classList.add('show');
+      }
+    } else if (isStopped) {
+      // Currently stopped, confirm start
+      const modal = document.getElementById('confirm-modal');
+      const msgEl = document.getElementById('confirm-message');
+      const confirmBtn = document.getElementById('confirm-btn');
+      if (modal && msgEl && confirmBtn) {
+        msgEl.textContent = 'Start the Nemotron service? Model loading may take several minutes.';
+        confirmBtn.onclick = () => {
+          hideModal();
+          startNemotron();
+        };
+        modal.classList.add('show');
+      }
+    } else {
+      showToast('No deployment to start/stop. Deploy first.', 'error');
+    }
+  }
+
   async function checkNemotronHealth() {
     showToast('Checking Nemotron health...', 'info');
     try {
@@ -2813,10 +2911,10 @@
     showToast('Token displayed! Select and copy (Ctrl+C / Cmd+C)', 'info');
   }
 
-  // Extend confirmAction to handle nemotron-stop and nemotron-delete
+  // Extend confirmAction to handle nemotron-delete
   const originalConfirmAction = confirmAction;
   confirmAction = function(action, message) {
-    if (action === 'nemotron-delete' || action === 'nemotron-stop') {
+    if (action === 'nemotron-delete') {
       const modal = document.getElementById('confirm-modal');
       const msgEl = document.getElementById('confirm-message');
       const confirmBtn = document.getElementById('confirm-btn');
@@ -2824,11 +2922,7 @@
         msgEl.textContent = message;
         confirmBtn.onclick = () => {
           hideModal();
-          if (action === 'nemotron-delete') {
-            deleteNemotron();
-          } else {
-            stopNemotron();
-          }
+          deleteNemotron();
         };
         modal.classList.add('show');
       }

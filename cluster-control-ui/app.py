@@ -1251,6 +1251,63 @@ def nemotron_stop():
     })
 
 
+@app.route("/nemotron/start", methods=["POST"])
+def nemotron_start():
+    """Start a stopped Nemotron deployment (scale back up)."""
+    status = _get_nemotron_status()
+    results = []
+    
+    if status["mode"] == "not_deployed":
+        return jsonify({
+            "success": False,
+            "message": "No deployment to start. Deploy first using Distributed or Single Node.",
+        })
+    
+    if status["mode"] in ("distributed", "single"):
+        return jsonify({
+            "success": False,
+            "message": "Deployment is already running.",
+        })
+    
+    if status["mode"] == "distributed_stopped":
+        # Scale RayCluster workers back to 1
+        ok, output = _run_kubectl_action([
+            "patch", "raycluster", "vllm-cluster", "-n", NEMOTRON_NAMESPACE,
+            "--type=json", "-p", '[{"op": "replace", "path": "/spec/workerGroupSpecs/0/replicas", "value": 1}, {"op": "replace", "path": "/spec/workerGroupSpecs/0/minReplicas", "value": 1}]'
+        ])
+        results.append({"step": "scale_workers", "success": ok, "output": output})
+        
+        # Re-apply the vLLM serve job
+        serve_file = NEMOTRON_DEPLOYMENT_DIR / "vllm-serve-job.yaml"
+        if serve_file.exists():
+            ok, output = _run_kubectl_action(["apply", "-f", str(serve_file)], timeout=30)
+            results.append({"step": "apply_serve_job", "success": ok, "output": output})
+        else:
+            results.append({"step": "apply_serve_job", "success": False, "output": f"Job file not found: {serve_file}"})
+        
+        message = "Distributed deployment starting. Workers scaled to 1 and vLLM serve job submitted."
+        
+    elif status["mode"] == "single_stopped":
+        # Scale single-node deployment back to 1
+        ok, output = _run_kubectl_action([
+            "scale", "deployment", "nemotron-vllm", "-n", NEMOTRON_NAMESPACE,
+            "--replicas=1"
+        ])
+        results.append({"step": "scale_single", "success": ok, "output": output})
+        message = "Single-node deployment starting (scaled to 1 replica)."
+    else:
+        return jsonify({
+            "success": False,
+            "message": f"Unknown deployment state: {status['mode']}",
+        })
+    
+    return jsonify({
+        "success": all(r["success"] for r in results),
+        "message": message,
+        "results": results,
+    })
+
+
 @app.route("/nemotron/health", methods=["GET"])
 def nemotron_health():
     """Check vLLM and LiteLLM health endpoints."""
