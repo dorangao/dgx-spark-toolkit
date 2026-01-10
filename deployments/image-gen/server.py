@@ -125,13 +125,21 @@ def generate_image(pipe, config, prompt: str, negative_prompt: str = "",
         "generator": generator,
     }
     
-    # Add size if supported
-    if hasattr(pipe, "unet") or "xl" in config["pipeline_class"].lower():
+    # Add width/height - most modern diffusion models support these
+    # Check pipeline's __call__ signature to see if width/height are accepted
+    import inspect
+    call_sig = inspect.signature(pipe.__call__)
+    call_params = call_sig.parameters
+    
+    if "width" in call_params:
         kwargs["width"] = width
+    if "height" in call_params:
         kwargs["height"] = height
     
+    logger.info(f"Generation params: width={width}, height={height}, steps={steps}, guidance={guidance}")
+    
     # Add negative prompt if supported and provided
-    if negative_prompt and "flux" not in config["pipeline_class"].lower():
+    if negative_prompt and "negative_prompt" in call_params:
         kwargs["negative_prompt"] = negative_prompt
     
     result = pipe(**kwargs)
