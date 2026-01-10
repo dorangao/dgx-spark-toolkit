@@ -1,13 +1,21 @@
 # RayCluster for Distributed vLLM with Pipeline Parallelism
 #
 # Uses KubeRay operator to manage Ray cluster lifecycle.
-# Deploys Nemotron-3 Nano 30B across 2 DGX Spark nodes using pipeline parallelism.
+# Supports multiple LLM models across 2 DGX Spark nodes using pipeline parallelism.
 #
 # Architecture:
 #   - Head node (spark-2959): Ray head + 1 GPU worker
 #   - Worker node (spark-ba63): Ray worker + 1 GPU
 #   - Pipeline Parallelism: 2 (splits model layers across nodes)
 #   - Communication: 200GbE fabric network (10.10.10.x)
+#
+# Model Caching:
+#   - Models cached at /var/lib/vllm-models on each node (hostPath)
+#   - Cache persists across pod restarts - no re-downloading!
+#   - First download goes to head, then sync to worker:
+#       ./manage-cache.sh preload nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+#       ./manage-cache.sh sync
+#   - Check cache: ./manage-cache.sh status
 #
 # After cluster is ready, run:
 #   kubectl exec -n llm-inference <head-pod> -- vllm serve ...
@@ -87,13 +95,14 @@ spec:
               # Disable CUDA graphs for Blackwell stability
               - name: VLLM_USE_CUDA_GRAPH
                 value: "0"
-              # NCCL configuration for fabric network
+              # NCCL configuration for fabric network (10.10.10.x)
+              # Use explicit interfaces for head node (enP7s7) and worker node (enp1s0f1np1)
               - name: NCCL_SOCKET_IFNAME
-                value: "^lo,docker"
+                value: "enP7s7,enp1s0f1np1"
               - name: NCCL_IB_DISABLE
                 value: "1"
               - name: NCCL_DEBUG
-                value: "WARN"
+                value: "INFO"
               - name: NCCL_P2P_DISABLE
                 value: "1"
               - name: GLOO_SOCKET_IFNAME
@@ -119,9 +128,12 @@ spec:
                 mountPath: /dev/shm
         
         volumes:
+          # Use hostPath for persistent model cache on head node
+          # This survives pod restarts and doesn't require RWX PVC
           - name: model-cache
-            persistentVolumeClaim:
-              claimName: vllm-models-pvc
+            hostPath:
+              path: /var/lib/vllm-models
+              type: DirectoryOrCreate
           # Reduced from 16Gi - 8Gi is sufficient for model weight transfer
           - name: dshm
             emptyDir:
@@ -185,13 +197,14 @@ spec:
                   value: "10.10.10.1:6379"
                 - name: VLLM_USE_CUDA_GRAPH
                   value: "0"
-                # NCCL configuration for fabric network
+                # NCCL configuration for fabric network (10.10.10.x)
+                # Use explicit interfaces for head node (enP7s7) and worker node (enp1s0f1np1)
                 - name: NCCL_SOCKET_IFNAME
-                  value: "^lo,docker"
+                  value: "enP7s7,enp1s0f1np1"
                 - name: NCCL_IB_DISABLE
                   value: "1"
                 - name: NCCL_DEBUG
-                  value: "WARN"
+                  value: "INFO"
                 - name: NCCL_P2P_DISABLE
                   value: "1"
                 - name: GLOO_SOCKET_IFNAME
@@ -217,10 +230,12 @@ spec:
                   mountPath: /dev/shm
           
           volumes:
-            # Worker needs local storage (PVC is RWO)
+            # Use hostPath for persistent model cache on worker node
+            # Same path as head node - models cached locally on each node
             - name: model-cache
-              emptyDir:
-                sizeLimit: "100Gi"
+              hostPath:
+                path: /var/lib/vllm-models
+                type: DirectoryOrCreate
             # Reduced shared memory - Ray workers don't need as much
             - name: dshm
               emptyDir:

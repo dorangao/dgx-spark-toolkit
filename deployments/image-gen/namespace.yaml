@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: image-gen
+  labels:
+    app.kubernetes.io/name: image-gen
+    app.kubernetes.io/component: ai-inference

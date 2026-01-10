@@ -1,0 +1,130 @@
+# Model Configuration Presets for vLLM Distributed Deployment
+# Each model defines vLLM serve parameters optimized for the DGX Spark cluster
+
+# Available models (use --model flag in deploy-distributed.sh)
+# Use the 'name' field to specify which model to deploy
+
+models:
+  # NVIDIA Nemotron-3 Nano 30B - Default model
+  nemotron-nano-30b:
+    name: "nemotron-nano-30b"
+    display_name: "Nemotron-3 Nano 30B"
+    huggingface_id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
+    description: "NVIDIA's efficient reasoning model with 30B total / 3.6B active params"
+    requires_trust_remote_code: true
+    size_gb: 60
+    # vLLM serve parameters
+    vllm_args:
+      dtype: "bfloat16"
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 2
+      max_model_len: 4096
+      gpu_memory_utilization: 0.85
+      enforce_eager: true
+    # Additional environment variables
+    env_vars: {}
+    # Recommended for distributed mode
+    distributed: true
+    min_gpus: 2
+
+  # Qwen2-VL Vision-Language Model (7B) - for IMAGE UNDERSTANDING
+  # Use this for chatting about images, VQA, image analysis
+  qwen2-vl-7b:
+    name: "qwen2-vl-7b"
+    display_name: "Qwen2-VL-7B-Instruct (Vision Understanding)"
+    huggingface_id: "Qwen/Qwen2-VL-7B-Instruct"
+    description: "Vision-language model for image understanding, VQA, and multimodal chat"
+    requires_trust_remote_code: true
+    size_gb: 16
+    vllm_args:
+      dtype: "bfloat16"
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 1  # Single node sufficient
+      max_model_len: 4096
+      gpu_memory_utilization: 0.85
+      enforce_eager: true
+    env_vars: {}
+    distributed: false  # Can run on single node
+    min_gpus: 1
+  
+  # NOTE: Qwen/Qwen-Image-2512 is an IMAGE GENERATION model (text-to-image)
+  # It requires ComfyUI or Diffusers, NOT vLLM. See comfyui-docker/ for setup.
+
+  # Qwen2.5 32B Instruct - Good balance of size and capability
+  qwen2.5-32b:
+    name: "qwen2.5-32b"
+    display_name: "Qwen2.5-32B-Instruct"
+    huggingface_id: "Qwen/Qwen2.5-32B-Instruct"
+    description: "Qwen's flagship 32B instruction-tuned model"
+    requires_trust_remote_code: true
+    size_gb: 65
+    vllm_args:
+      dtype: "bfloat16"
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 2
+      max_model_len: 8192
+      gpu_memory_utilization: 0.85
+      enforce_eager: true
+    env_vars: {}
+    distributed: true
+    min_gpus: 2
+
+  # Llama 3.1 70B Instruct - Large model requiring distribution
+  llama3.1-70b:
+    name: "llama3.1-70b"
+    display_name: "Llama-3.1-70B-Instruct"
+    huggingface_id: "meta-llama/Llama-3.1-70B-Instruct"
+    description: "Meta's Llama 3.1 70B instruction-tuned model"
+    requires_trust_remote_code: false
+    size_gb: 140
+    vllm_args:
+      dtype: "bfloat16"
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 2
+      max_model_len: 4096
+      gpu_memory_utilization: 0.90
+      enforce_eager: true
+    env_vars: {}
+    distributed: true
+    min_gpus: 2
+
+  # DeepSeek Coder V2 Lite - Code-focused model
+  deepseek-coder-v2:
+    name: "deepseek-coder-v2"
+    display_name: "DeepSeek-Coder-V2-Lite-Instruct"
+    huggingface_id: "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
+    description: "DeepSeek's code-focused instruction model"
+    requires_trust_remote_code: true
+    size_gb: 32
+    vllm_args:
+      dtype: "bfloat16"
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 1
+      max_model_len: 8192
+      gpu_memory_utilization: 0.80
+      enforce_eager: true
+    env_vars: {}
+    distributed: false
+    min_gpus: 1
+
+  # Mistral Nemo 12B - Efficient smaller model
+  mistral-nemo-12b:
+    name: "mistral-nemo-12b"
+    display_name: "Mistral-Nemo-Instruct-2407"
+    huggingface_id: "mistralai/Mistral-Nemo-Instruct-2407"
+    description: "Mistral's efficient 12B Nemo model"
+    requires_trust_remote_code: false
+    size_gb: 24
+    vllm_args:
+      dtype: "bfloat16"
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 1
+      max_model_len: 16384
+      gpu_memory_utilization: 0.80
+      enforce_eager: false  # Can use CUDA graphs for smaller model
+    env_vars: {}
+    distributed: false
+    min_gpus: 1
+
+# Default model to use when none specified
+default_model: "nemotron-nano-30b"

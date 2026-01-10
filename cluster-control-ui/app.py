@@ -906,7 +906,7 @@ def host_metrics_stream():
 
 
 # --------------------------------------------------------------------------
-# Nemotron Deployment Management
+# LLM Deployment Management (Multi-Model Support)
 # --------------------------------------------------------------------------
 
 NEMOTRON_NAMESPACE = "llm-inference"
@@ -920,15 +920,66 @@ VLLM_DISTRIBUTED_IP = os.environ.get("VLLM_DISTRIBUTED_IP", "192.168.86.203")
 VLLM_DISTRIBUTED_PORT = os.environ.get("VLLM_DISTRIBUTED_PORT", "8081")
 LITELLM_IP = os.environ.get("LITELLM_IP", "192.168.86.204")
 LITELLM_PORT = os.environ.get("LITELLM_PORT", "4000")
+LITELLM_API_KEY = os.environ.get("LITELLM_API_KEY", "sk-litellm-master-1234")
+
+# Model configuration
+MODEL_CONFIG_FILE = NEMOTRON_DEPLOYMENT_DIR / "model-configs.yaml"
+
+
+def _load_model_configs() -> Dict[str, object]:
+    """Load model configurations from YAML file."""
+    if not MODEL_CONFIG_FILE.exists():
+        return {"models": {}, "default_model": "nemotron-nano-30b"}
+    
+    try:
+        import yaml
+        with open(MODEL_CONFIG_FILE, "r") as f:
+            return yaml.safe_load(f) or {"models": {}, "default_model": "nemotron-nano-30b"}
+    except ImportError:
+        # Fallback: basic parsing without PyYAML
+        return {
+            "models": {
+                "nemotron-nano-30b": {
+                    "name": "nemotron-nano-30b",
+                    "display_name": "Nemotron-3 Nano 30B",
+                    "huggingface_id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
+                    "size_gb": 60,
+                    "distributed": True,
+                    "min_gpus": 2,
+                },
+                "qwen-image-2512": {
+                    "name": "qwen-image-2512",
+                    "display_name": "Qwen-Image-2512 (Vision)",
+                    "huggingface_id": "Qwen/Qwen-Image-2512",
+                    "size_gb": 41,
+                    "distributed": False,
+                    "min_gpus": 1,
+                },
+                "qwen2.5-32b": {
+                    "name": "qwen2.5-32b",
+                    "display_name": "Qwen2.5-32B-Instruct",
+                    "huggingface_id": "Qwen/Qwen2.5-32B-Instruct",
+                    "size_gb": 65,
+                    "distributed": True,
+                    "min_gpus": 2,
+                },
+            },
+            "default_model": "nemotron-nano-30b"
+        }
+    except Exception:
+        return {"models": {}, "default_model": "nemotron-nano-30b"}
 
 
 def _get_nemotron_status() -> Dict[str, object]:
-    """Get comprehensive Nemotron deployment status."""
+    """Get comprehensive LLM deployment status (supports multiple models)."""
     import urllib.request
     import urllib.error
     
     status = {
         "mode": "not_deployed",  # "distributed", "single", "not_deployed"
+        "current_model": None,
+        "current_model_display": None,
+        "current_model_hf_id": None,
         "ray_cluster": None,
         "ray_job": None,
         "pods": [],
@@ -941,6 +992,17 @@ def _get_nemotron_status() -> Dict[str, object]:
             "ray_dashboard": f"http://{VLLM_DISTRIBUTED_IP}:8265",
         },
     }
+    
+    # Get current model from RayJob labels/annotations
+    ok, output = _run_kubectl([
+        "get", "rayjob", "vllm-serve", "-n", NEMOTRON_NAMESPACE,
+        "-o", "jsonpath={.metadata.labels.vllm\\.model},{.metadata.annotations.vllm\\.model-id},{.metadata.annotations.vllm\\.display-name}"
+    ])
+    if ok and output.strip():
+        parts = output.split(",")
+        status["current_model"] = parts[0] if parts else None
+        status["current_model_hf_id"] = parts[1] if len(parts) > 1 else None
+        status["current_model_display"] = parts[2] if len(parts) > 2 else parts[0] if parts else None
     
     # Check RayCluster
     ok, output = _run_kubectl([
@@ -1067,21 +1129,63 @@ def _get_nemotron_status() -> Dict[str, object]:
 
 @app.route("/nemotron/status", methods=["GET"])
 def nemotron_status():
-    """Get Nemotron deployment status."""
+    """Get LLM deployment status."""
     return jsonify(_get_nemotron_status())
+
+
+@app.route("/nemotron/models", methods=["GET"])
+def list_models():
+    """List available model presets."""
+    config = _load_model_configs()
+    models = config.get("models", {})
+    default = config.get("default_model", "nemotron-nano-30b")
+    
+    # Get current deployed model
+    status = _get_nemotron_status()
+    current = status.get("current_model")
+    
+    return jsonify({
+        "models": models,
+        "default_model": default,
+        "current_model": current,
+    })
 
 
 @app.route("/nemotron/deploy/distributed", methods=["POST"])
 def nemotron_deploy_distributed():
-    """Deploy Nemotron in distributed mode using KubeRay."""
+    """Deploy LLM in distributed mode using KubeRay (supports model selection)."""
     from flask import request
     
-    # Check if already deployed
-    status = _get_nemotron_status()
-    if status["mode"] == "distributed":
+    data = request.get_json() or {}
+    model_name = data.get("model")
+    
+    # Load model configs
+    config = _load_model_configs()
+    models = config.get("models", {})
+    default_model = config.get("default_model", "nemotron-nano-30b")
+    
+    # Use default if not specified
+    if not model_name:
+        model_name = default_model
+    
+    # Validate model
+    if model_name not in models:
         return jsonify({
             "success": False,
-            "message": "Distributed deployment already exists. Delete first to redeploy.",
+            "message": f"Unknown model: {model_name}. Available: {', '.join(models.keys())}",
+        })
+    
+    model_config = models[model_name]
+    model_display = model_config.get("display_name", model_name)
+    
+    # Check if switching models (allow redeploy with different model)
+    status = _get_nemotron_status()
+    current_model = status.get("current_model")
+    
+    if status["mode"] == "distributed" and current_model == model_name:
+        return jsonify({
+            "success": False,
+            "message": f"{model_display} is already deployed. Delete first to redeploy.",
         })
     
     results = []
@@ -1094,7 +1198,15 @@ def nemotron_deploy_distributed():
         ])
         results.append({"step": "delete_single", "success": ok, "output": output})
     
-    # Step 2: Apply RayCluster
+    # Step 2: Delete existing RayJob if switching models
+    if status["mode"] == "distributed" and current_model and current_model != model_name:
+        ok, output = _run_kubectl_action([
+            "delete", "rayjob", "vllm-serve", "-n", NEMOTRON_NAMESPACE,
+            "--ignore-not-found"
+        ])
+        results.append({"step": "delete_old_job", "success": ok, "output": output})
+    
+    # Step 3: Apply RayCluster
     raycluster_file = NEMOTRON_DEPLOYMENT_DIR / "raycluster-vllm.yaml"
     if not raycluster_file.exists():
         return jsonify({
@@ -1107,13 +1219,37 @@ def nemotron_deploy_distributed():
     if not ok:
         return jsonify({"success": False, "message": "Failed to apply RayCluster", "results": results})
     
-    # Step 3: Apply vLLM serve job
-    servejob_file = NEMOTRON_DEPLOYMENT_DIR / "vllm-serve-job.yaml"
+    # Step 4: Generate and apply vLLM serve job for selected model
+    # Use the generated job file if it exists (from deploy-distributed.sh)
+    servejob_file = NEMOTRON_DEPLOYMENT_DIR / "vllm-serve-job-generated.yaml"
+    if not servejob_file.exists():
+        # Fallback to default job file
+        servejob_file = NEMOTRON_DEPLOYMENT_DIR / "vllm-serve-job.yaml"
+    
     if servejob_file.exists():
         ok, output = _run_kubectl_action(["apply", "-f", str(servejob_file)], timeout=30)
         results.append({"step": "apply_servejob", "success": ok, "output": output})
+    else:
+        # If no job file, run deploy script to generate it
+        deploy_script = NEMOTRON_DEPLOYMENT_DIR / "deploy-distributed.sh"
+        if deploy_script.exists():
+            try:
+                result = subprocess.run(
+                    [str(deploy_script), "--model", model_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    env={**os.environ, "HF_TOKEN": os.environ.get("HF_TOKEN", "")}
+                )
+                results.append({
+                    "step": "run_deploy_script",
+                    "success": result.returncode == 0,
+                    "output": result.stdout + result.stderr
+                })
+            except Exception as e:
+                results.append({"step": "run_deploy_script", "success": False, "output": str(e)})
     
-    # Step 4: Apply distributed service
+    # Step 5: Apply distributed service
     service_file = NEMOTRON_DEPLOYMENT_DIR / "service-distributed.yaml"
     if service_file.exists():
         ok, output = _run_kubectl_action(["apply", "-f", str(service_file)], timeout=30)
@@ -1121,7 +1257,9 @@ def nemotron_deploy_distributed():
     
     return jsonify({
         "success": all(r["success"] for r in results),
-        "message": "Distributed deployment initiated. Ray cluster will start shortly.",
+        "message": f"Deploying {model_display}. Ray cluster will start shortly.",
+        "model": model_name,
+        "model_display": model_display,
         "results": results,
     })
 
@@ -1444,6 +1582,544 @@ def nemotron_litellm_restart():
         "rollout", "restart", "deployment", "litellm-proxy", "-n", NEMOTRON_NAMESPACE
     ])
     return jsonify({"success": ok, "message": output})
+
+
+# --------------------------------------------------------------------------
+# LLM Chat API (via LiteLLM proxy or direct vLLM)
+# --------------------------------------------------------------------------
+
+@app.route("/llm/chat", methods=["POST"])
+def llm_chat():
+    """Send a chat completion request via LiteLLM proxy."""
+    import urllib.request
+    import urllib.error
+    
+    from flask import request
+    data = request.get_json() or {}
+    
+    messages = data.get("messages", [])
+    model = data.get("model", "nemotron")  # LiteLLM model alias
+    max_tokens = data.get("max_tokens", 1024)
+    temperature = data.get("temperature", 0.7)
+    use_litellm = data.get("use_litellm", True)
+    
+    if not messages:
+        return jsonify({"success": False, "error": "No messages provided"})
+    
+    # Choose endpoint
+    if use_litellm:
+        url = f"http://{LITELLM_IP}:{LITELLM_PORT}/v1/chat/completions"
+    else:
+        url = f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/v1/chat/completions"
+    
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    
+    headers = {"Content-Type": "application/json"}
+    if use_litellm:
+        headers["Authorization"] = f"Bearer {LITELLM_API_KEY}"
+    
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode(),
+            headers=headers,
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=180) as response:
+            result = json.loads(response.read().decode())
+            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            usage = result.get("usage", {})
+            return jsonify({
+                "success": True,
+                "content": content,
+                "usage": usage,
+                "model": result.get("model", model),
+            })
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode() if e.fp else str(e)
+        return jsonify({"success": False, "error": f"HTTP {e.code}: {error_body}"})
+    except urllib.error.URLError as e:
+        return jsonify({"success": False, "error": f"Connection failed: {e.reason}"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/llm/chat/stream", methods=["POST"])
+def llm_chat_stream():
+    """Stream chat completion response via SSE."""
+    import urllib.request
+    import urllib.error
+    
+    from flask import request
+    data = request.get_json() or {}
+    
+    messages = data.get("messages", [])
+    model = data.get("model", "nemotron")
+    max_tokens = data.get("max_tokens", 1024)
+    temperature = data.get("temperature", 0.7)
+    use_litellm = data.get("use_litellm", True)
+    
+    if not messages:
+        def error_gen():
+            yield f"data: {json.dumps({'error': 'No messages provided'})}\n\n"
+        return Response(error_gen(), mimetype="text/event-stream")
+    
+    # Choose endpoint
+    if use_litellm:
+        url = f"http://{LITELLM_IP}:{LITELLM_PORT}/v1/chat/completions"
+    else:
+        url = f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/v1/chat/completions"
+    
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": True,
+    }
+    
+    headers = {"Content-Type": "application/json"}
+    if use_litellm:
+        headers["Authorization"] = f"Bearer {LITELLM_API_KEY}"
+    
+    def generate():
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode(),
+                headers=headers,
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=300) as response:
+                for line in response:
+                    line = line.decode().strip()
+                    if line.startswith("data: "):
+                        yield f"{line}\n\n"
+                        if line == "data: [DONE]":
+                            break
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.route("/llm/models/available", methods=["GET"])
+def llm_models_available():
+    """Get models available in LiteLLM."""
+    import urllib.request
+    import urllib.error
+    
+    result = {"litellm": [], "vllm": []}
+    
+    # Try LiteLLM
+    try:
+        req = urllib.request.Request(f"http://{LITELLM_IP}:{LITELLM_PORT}/v1/models")
+        req.add_header("Authorization", f"Bearer {LITELLM_API_KEY}")
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            result["litellm"] = [m.get("id") for m in data.get("data", [])]
+    except Exception:
+        pass
+    
+    # Try vLLM direct
+    try:
+        req = urllib.request.Request(f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/v1/models")
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            result["vllm"] = [m.get("id") for m in data.get("data", [])]
+    except Exception:
+        pass
+    
+    return jsonify(result)
+
+
+# --------------------------------------------------------------------------
+# Image Generation Deployment
+# --------------------------------------------------------------------------
+
+IMAGEGEN_NAMESPACE = "image-gen"
+IMAGEGEN_DEPLOYMENT_DIR = Path(os.environ.get(
+    "IMAGEGEN_DEPLOYMENT_DIR",
+    "~/dgx-spark-toolkit/deployments/image-gen"
+)).expanduser()
+IMAGEGEN_LB_IP = os.environ.get("IMAGEGEN_LB_IP", "192.168.86.210")
+
+# Available image generation models
+IMAGEGEN_MODELS = {
+    "qwen-image-2512": {
+        "name": "qwen-image-2512",
+        "display_name": "Qwen-Image-2512",
+        "huggingface_id": "Qwen/Qwen-Image-2512",
+        "description": "Qwen's text-to-image generation model - 2512px output",
+        "size_gb": 41,
+        "min_vram_gb": 48,
+    },
+    "stable-diffusion-xl": {
+        "name": "stable-diffusion-xl",
+        "display_name": "Stable Diffusion XL",
+        "huggingface_id": "stabilityai/stable-diffusion-xl-base-1.0",
+        "description": "Stability AI's SDXL - high quality 1024px images",
+        "size_gb": 12,
+        "min_vram_gb": 16,
+    },
+    "flux-schnell": {
+        "name": "flux-schnell",
+        "display_name": "FLUX.1 Schnell",
+        "huggingface_id": "black-forest-labs/FLUX.1-schnell",
+        "description": "Fast high-quality image generation",
+        "size_gb": 34,
+        "min_vram_gb": 24,
+    },
+}
+
+
+def _get_imagegen_status() -> Dict[str, object]:
+    """Get image generation deployment status."""
+    result = {
+        "deployed": False,
+        "ready": False,
+        "model": None,
+        "replicas": 0,
+        "ready_replicas": 0,
+        "pods": [],
+        "endpoint": None,
+    }
+    
+    try:
+        # Check deployment
+        proc = subprocess.run(
+            ["kubectl", "get", "deployment", "image-gen", "-n", IMAGEGEN_NAMESPACE,
+             "-o", "jsonpath={.status.replicas},{.status.readyReplicas},{.spec.template.spec.containers[0].env[?(@.name=='MODEL_NAME')].value}"],
+            capture_output=True, text=True, timeout=10
+        )
+        if proc.returncode == 0 and proc.stdout:
+            parts = proc.stdout.split(",")
+            if len(parts) >= 2:
+                result["deployed"] = True
+                result["replicas"] = int(parts[0]) if parts[0] else 0
+                result["ready_replicas"] = int(parts[1]) if parts[1] else 0
+                result["model"] = parts[2] if len(parts) > 2 and parts[2] else "qwen-image-2512"
+                result["ready"] = result["ready_replicas"] > 0
+        
+        # Get pods
+        proc = subprocess.run(
+            ["kubectl", "get", "pods", "-n", IMAGEGEN_NAMESPACE,
+             "-l", "app=image-gen", "-o", "jsonpath={range .items[*]}{.metadata.name},{.status.phase},{.spec.nodeName}\n{end}"],
+            capture_output=True, text=True, timeout=10
+        )
+        if proc.returncode == 0:
+            for line in proc.stdout.strip().split("\n"):
+                if line:
+                    parts = line.split(",")
+                    if len(parts) >= 2:
+                        result["pods"].append({
+                            "name": parts[0],
+                            "status": parts[1],
+                            "node": parts[2] if len(parts) > 2 else "",
+                        })
+        
+        # Get service endpoint
+        proc = subprocess.run(
+            ["kubectl", "get", "svc", "image-gen", "-n", IMAGEGEN_NAMESPACE,
+             "-o", "jsonpath={.status.loadBalancer.ingress[0].ip}"],
+            capture_output=True, text=True, timeout=10
+        )
+        if proc.returncode == 0 and proc.stdout:
+            result["endpoint"] = f"http://{proc.stdout}"
+        
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return result
+
+
+@app.route("/imagegen/status", methods=["GET"])
+def imagegen_status():
+    """Get image generation deployment status."""
+    return jsonify(_get_imagegen_status())
+
+
+@app.route("/imagegen/models", methods=["GET"])
+def imagegen_models():
+    """List available image generation models."""
+    status = _get_imagegen_status()
+    return jsonify({
+        "models": IMAGEGEN_MODELS,
+        "current_model": status.get("model"),
+        "deployed": status.get("deployed", False),
+    })
+
+
+@app.route("/imagegen/deploy", methods=["POST"])
+def imagegen_deploy():
+    """Deploy image generation service."""
+    from flask import request
+    data = request.get_json() or {}
+    
+    model_name = data.get("model", "qwen-image-2512")
+    replicas = data.get("replicas", 2)
+    
+    if model_name not in IMAGEGEN_MODELS:
+        return jsonify({"success": False, "error": f"Unknown model: {model_name}"})
+    
+    try:
+        # Create namespace
+        namespace_file = IMAGEGEN_DEPLOYMENT_DIR / "namespace.yaml"
+        if namespace_file.exists():
+            subprocess.run(["kubectl", "apply", "-f", str(namespace_file)], 
+                         capture_output=True, timeout=30)
+        
+        # Create ConfigMap with server code
+        server_file = IMAGEGEN_DEPLOYMENT_DIR / "server.py"
+        if server_file.exists():
+            subprocess.run([
+                "kubectl", "create", "configmap", "image-gen-server",
+                f"--namespace={IMAGEGEN_NAMESPACE}",
+                f"--from-file=server.py={server_file}",
+                "--dry-run=client", "-o", "yaml"
+            ], capture_output=True, timeout=30)
+            
+            proc = subprocess.run([
+                "kubectl", "create", "configmap", "image-gen-server",
+                f"--namespace={IMAGEGEN_NAMESPACE}",
+                f"--from-file=server.py={server_file}",
+                "--dry-run=client", "-o", "yaml"
+            ], capture_output=True, text=True, timeout=30)
+            
+            if proc.returncode == 0:
+                apply_proc = subprocess.run(
+                    ["kubectl", "apply", "-f", "-"],
+                    input=proc.stdout, capture_output=True, text=True, timeout=30
+                )
+        
+        # Create model config
+        subprocess.run([
+            "kubectl", "create", "configmap", "image-gen-config",
+            f"--namespace={IMAGEGEN_NAMESPACE}",
+            f"--from-literal=MODEL_NAME={model_name}",
+            "--dry-run=client", "-o", "yaml"
+        ], capture_output=True, timeout=30)
+        
+        proc = subprocess.run([
+            "kubectl", "create", "configmap", "image-gen-config",
+            f"--namespace={IMAGEGEN_NAMESPACE}",
+            f"--from-literal=MODEL_NAME={model_name}",
+            "--dry-run=client", "-o", "yaml"
+        ], capture_output=True, text=True, timeout=30)
+        
+        if proc.returncode == 0:
+            subprocess.run(
+                ["kubectl", "apply", "-f", "-"],
+                input=proc.stdout, capture_output=True, text=True, timeout=30
+            )
+        
+        # Apply deployment with model substitution
+        deployment_file = IMAGEGEN_DEPLOYMENT_DIR / "deployment.yaml"
+        if deployment_file.exists():
+            with open(deployment_file) as f:
+                deployment_yaml = f.read()
+            
+            # Substitute model name and replicas
+            deployment_yaml = deployment_yaml.replace(
+                'value: "qwen-image-2512"',
+                f'value: "{model_name}"'
+            )
+            deployment_yaml = deployment_yaml.replace(
+                'replicas: 2',
+                f'replicas: {replicas}'
+            )
+            
+            proc = subprocess.run(
+                ["kubectl", "apply", "-f", "-"],
+                input=deployment_yaml, capture_output=True, text=True, timeout=60
+            )
+            if proc.returncode != 0:
+                return jsonify({"success": False, "error": proc.stderr})
+        
+        # Apply service
+        service_file = IMAGEGEN_DEPLOYMENT_DIR / "service.yaml"
+        if service_file.exists():
+            subprocess.run(["kubectl", "apply", "-f", str(service_file)],
+                         capture_output=True, timeout=30)
+        
+        return jsonify({
+            "success": True,
+            "message": f"Deploying {model_name} with {replicas} replicas",
+            "model": IMAGEGEN_MODELS.get(model_name, {}),
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/imagegen/delete", methods=["POST"])
+def imagegen_delete():
+    """Delete image generation deployment."""
+    try:
+        subprocess.run([
+            "kubectl", "delete", "deployment", "image-gen",
+            "-n", IMAGEGEN_NAMESPACE, "--ignore-not-found"
+        ], capture_output=True, timeout=60)
+        
+        subprocess.run([
+            "kubectl", "delete", "svc", "image-gen", "image-gen-internal", "image-gen-headless",
+            "-n", IMAGEGEN_NAMESPACE, "--ignore-not-found"
+        ], capture_output=True, timeout=30)
+        
+        subprocess.run([
+            "kubectl", "delete", "configmap", "image-gen-server", "image-gen-config",
+            "-n", IMAGEGEN_NAMESPACE, "--ignore-not-found"
+        ], capture_output=True, timeout=30)
+        
+        return jsonify({"success": True, "message": "Image generation deployment deleted"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/imagegen/scale", methods=["POST"])
+def imagegen_scale():
+    """Scale image generation deployment."""
+    from flask import request
+    data = request.get_json() or {}
+    replicas = data.get("replicas", 2)
+    
+    try:
+        proc = subprocess.run([
+            "kubectl", "scale", "deployment", "image-gen",
+            "-n", IMAGEGEN_NAMESPACE, f"--replicas={replicas}"
+        ], capture_output=True, text=True, timeout=30)
+        
+        if proc.returncode != 0:
+            return jsonify({"success": False, "error": proc.stderr})
+        
+        return jsonify({"success": True, "message": f"Scaled to {replicas} replicas"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/imagegen/logs", methods=["GET"])
+def imagegen_logs():
+    """Get logs from image generation pods."""
+    from flask import request
+    lines = request.args.get("lines", "100")
+    
+    try:
+        # Get first pod name
+        proc = subprocess.run([
+            "kubectl", "get", "pods", "-n", IMAGEGEN_NAMESPACE,
+            "-l", "app=image-gen", "-o", "jsonpath={.items[0].metadata.name}"
+        ], capture_output=True, text=True, timeout=10)
+        
+        if proc.returncode != 0 or not proc.stdout:
+            return jsonify({"success": False, "error": "No pods found"})
+        
+        pod_name = proc.stdout.strip()
+        
+        proc = subprocess.run([
+            "kubectl", "logs", pod_name, "-n", IMAGEGEN_NAMESPACE, f"--tail={lines}"
+        ], capture_output=True, text=True, timeout=30)
+        
+        return jsonify({
+            "success": True,
+            "pod": pod_name,
+            "logs": proc.stdout,
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/imagegen/health", methods=["GET"])
+def imagegen_health():
+    """Check image generation service health."""
+    import urllib.request
+    import urllib.error
+    
+    status = _get_imagegen_status()
+    
+    if not status.get("endpoint"):
+        return jsonify({
+            "healthy": False,
+            "error": "No endpoint available",
+            "status": status,
+        })
+    
+    try:
+        url = f"{status['endpoint']}/api/health"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode())
+            return jsonify({
+                "healthy": True,
+                "response": data,
+                "status": status,
+            })
+    except Exception as e:
+        return jsonify({
+            "healthy": False,
+            "error": str(e),
+            "status": status,
+        })
+
+
+@app.route("/imagegen/generate", methods=["POST"])
+def imagegen_generate():
+    """Generate an image via the deployed service."""
+    import urllib.request
+    import urllib.error
+    from flask import request
+    
+    data = request.get_json() or {}
+    prompt = data.get("prompt", "")
+    
+    if not prompt:
+        return jsonify({"success": False, "error": "No prompt provided"})
+    
+    status = _get_imagegen_status()
+    if not status.get("endpoint"):
+        return jsonify({"success": False, "error": "Image generation service not available"})
+    
+    try:
+        url = f"{status['endpoint']}/api/generate"
+        payload = {
+            "prompt": prompt,
+            "negative_prompt": data.get("negative_prompt", ""),
+            "steps": data.get("steps", 30),
+            "guidance_scale": data.get("guidance_scale", 7.5),
+            "width": data.get("width"),
+            "height": data.get("height"),
+            "seed": data.get("seed", -1),
+            "return_base64": True,
+        }
+        
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        
+        with urllib.request.urlopen(req, timeout=300) as response:
+            result = json.loads(response.read().decode())
+            return jsonify(result)
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode() if e.fp else str(e)
+        return jsonify({"success": False, "error": f"HTTP {e.code}: {error_body}"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 
 # --------------------------------------------------------------------------

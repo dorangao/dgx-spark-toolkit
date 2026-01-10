@@ -18,21 +18,21 @@ data:
       - model_name: nemotron
         litellm_params:
           model: openai/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
-          api_base: http://192.168.86.203:8081/v1
+          api_base: http://10.10.10.1:8081/v1
           api_key: "sk-no-key-required"
       
       # Alias for convenience - use "gpt-4" to route to Nemotron
       - model_name: gpt-4
         litellm_params:
           model: openai/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
-          api_base: http://192.168.86.203:8081/v1
+          api_base: http://10.10.10.1:8081/v1
           api_key: "sk-no-key-required"
       
       # Alias for "default"
       - model_name: default
         litellm_params:
           model: openai/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
-          api_base: http://192.168.86.203:8081/v1
+          api_base: http://10.10.10.1:8081/v1
           api_key: "sk-no-key-required"
 
     litellm_settings:

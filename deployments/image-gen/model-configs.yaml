@@ -1,0 +1,95 @@
+# Image Generation Model Configurations
+# Each entry defines parameters for deploying an image generation model
+
+models:
+  qwen-image-2512:
+    name: "qwen-image-2512"
+    display_name: "Qwen-Image-2512"
+    huggingface_id: "Qwen/Qwen-Image-2512"
+    description: "Qwen's text-to-image generation model - 2512px output"
+    container_image: "nvcr.io/nvidia/pytorch:25.04-py3"
+    size_gb: 41
+    min_vram_gb: 48
+    resources:
+      requests:
+        memory: "32Gi"
+        cpu: "4"
+        nvidia.com/gpu: "1"
+      limits:
+        memory: "64Gi"
+        cpu: "8"
+        nvidia.com/gpu: "1"
+    env_vars:
+      HF_HOME: "/models/huggingface"
+    port: 7860
+    health_endpoint: "/"
+    replicas: 2  # One per node
+    node_selector: {}  # Will be set per replica
+    default_args:
+      steps: 30
+      guidance_scale: 7.5
+
+  stable-diffusion-xl:
+    name: "stable-diffusion-xl"
+    display_name: "Stable Diffusion XL"
+    huggingface_id: "stabilityai/stable-diffusion-xl-base-1.0"
+    description: "Stability AI's SDXL - high quality 1024px images"
+    container_image: "nvcr.io/nvidia/pytorch:25.04-py3"
+    size_gb: 12
+    min_vram_gb: 16
+    resources:
+      requests:
+        memory: "16Gi"
+        cpu: "2"
+        nvidia.com/gpu: "1"
+      limits:
+        memory: "32Gi"
+        cpu: "4"
+        nvidia.com/gpu: "1"
+    env_vars:
+      HF_HOME: "/models/huggingface"
+    port: 7860
+    health_endpoint: "/"
+    replicas: 2
+    node_selector: {}
+    default_args:
+      steps: 30
+      guidance_scale: 7.5
+
+  flux-schnell:
+    name: "flux-schnell"
+    display_name: "FLUX.1 Schnell"
+    huggingface_id: "black-forest-labs/FLUX.1-schnell"
+    description: "Fast high-quality image generation"
+    container_image: "nvcr.io/nvidia/pytorch:25.04-py3"
+    size_gb: 34
+    min_vram_gb: 24
+    resources:
+      requests:
+        memory: "24Gi"
+        cpu: "4"
+        nvidia.com/gpu: "1"
+      limits:
+        memory: "48Gi"
+        cpu: "8"
+        nvidia.com/gpu: "1"
+    env_vars:
+      HF_HOME: "/models/huggingface"
+    port: 7860
+    health_endpoint: "/"
+    replicas: 2
+    node_selector: {}
+    default_args:
+      steps: 4
+      guidance_scale: 0.0
+
+# Default settings
+defaults:
+  namespace: "image-gen"
+  service_type: "LoadBalancer"
+  model_cache_path: "/data/models/image-gen"
+  pip_packages:
+    - "diffusers"
+    - "transformers"
+    - "accelerate"
+    - "gradio"
