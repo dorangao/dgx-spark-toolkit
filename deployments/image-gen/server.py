@@ -6,8 +6,8 @@ Supports multiple diffusion models with a Gradio web interface and REST API.
 Usage:
     python server.py --model qwen-image-2512
     python server.py --model stable-diffusion-xl
-    python server.py --model flux2-dev
     python server.py --model sd35-large-tensorrt
+    python server.py --model flux1-dev  # requires HF auth
 """
 
 import argparse
@@ -39,14 +39,14 @@ MODEL_CONFIGS = {
         "default_size": (1024, 1024),
         "dtype": "float16",
     },
-    "flux2-dev": {
-        "repo_id": "black-forest-labs/FLUX.2-dev-NVFP4",
+    "flux1-dev": {
+        "repo_id": "black-forest-labs/FLUX.1-dev",
         "pipeline_class": "FluxPipeline",
         "default_steps": 25,
         "default_guidance": 3.5,
         "default_size": (1024, 1024),
         "dtype": "bfloat16",
-        "gated": True,  # Requires HF authentication
+        "gated": True,  # Requires HF authentication & license acceptance
     },
     "sd35-large-tensorrt": {
         "repo_id": "stabilityai/stable-diffusion-3.5-large-tensorrt",
