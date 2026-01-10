@@ -1624,6 +1624,14 @@ IMAGEGEN_MODELS = {
         "min_vram_gb": 24,
         "gated": True,
     },
+    "sd35-large-tensorrt": {
+        "name": "sd35-large-tensorrt",
+        "display_name": "SD 3.5 Large TensorRT",
+        "huggingface_id": "stabilityai/stable-diffusion-3.5-large-tensorrt",
+        "description": "TensorRT optimized SD 3.5 - fast inference",
+        "size_gb": 16,
+        "min_vram_gb": 16,
+    },
 }
 
 

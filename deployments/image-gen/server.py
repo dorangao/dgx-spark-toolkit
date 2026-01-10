@@ -6,7 +6,8 @@ Supports multiple diffusion models with a Gradio web interface and REST API.
 Usage:
     python server.py --model qwen-image-2512
     python server.py --model stable-diffusion-xl
-    python server.py --model flux-schnell
+    python server.py --model flux2-dev
+    python server.py --model sd35-large-tensorrt
 """
 
 import argparse
@@ -38,13 +39,22 @@ MODEL_CONFIGS = {
         "default_size": (1024, 1024),
         "dtype": "float16",
     },
-    "flux-schnell": {
-        "repo_id": "black-forest-labs/FLUX.1-schnell",
+    "flux2-dev": {
+        "repo_id": "black-forest-labs/FLUX.2-dev-NVFP4",
         "pipeline_class": "FluxPipeline",
-        "default_steps": 4,
-        "default_guidance": 0.0,
+        "default_steps": 25,
+        "default_guidance": 3.5,
         "default_size": (1024, 1024),
         "dtype": "bfloat16",
+        "gated": True,  # Requires HF authentication
+    },
+    "sd35-large-tensorrt": {
+        "repo_id": "stabilityai/stable-diffusion-3.5-large-tensorrt",
+        "pipeline_class": "StableDiffusion3Pipeline",
+        "default_steps": 28,
+        "default_guidance": 4.5,
+        "default_size": (1024, 1024),
+        "dtype": "float16",
     },
 }
 
@@ -52,7 +62,7 @@ MODEL_CONFIGS = {
 def load_pipeline(model_name: str):
     """Load the specified diffusion pipeline."""
     import torch
-    from diffusers import DiffusionPipeline, StableDiffusionXLPipeline, FluxPipeline
+    from diffusers import DiffusionPipeline, StableDiffusionXLPipeline, FluxPipeline, StableDiffusion3Pipeline
     
     if model_name not in MODEL_CONFIGS:
         raise ValueError(f"Unknown model: {model_name}. Available: {list(MODEL_CONFIGS.keys())}")
@@ -76,6 +86,7 @@ def load_pipeline(model_name: str):
         "DiffusionPipeline": DiffusionPipeline,
         "StableDiffusionXLPipeline": StableDiffusionXLPipeline,
         "FluxPipeline": FluxPipeline,
+        "StableDiffusion3Pipeline": StableDiffusion3Pipeline,
     }
     
     PipelineClass = pipeline_classes.get(config["pipeline_class"], DiffusionPipeline)
