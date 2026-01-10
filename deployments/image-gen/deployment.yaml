@@ -46,7 +46,7 @@ spec:
             - |
               set -e
               echo "Installing dependencies..."
-              pip install -q diffusers transformers accelerate gradio uvicorn fastapi
+              pip install -q diffusers transformers accelerate gradio uvicorn fastapi sentencepiece protobuf
               
               echo "Starting image generation server..."
               cd /app
