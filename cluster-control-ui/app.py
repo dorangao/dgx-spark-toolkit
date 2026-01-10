@@ -1615,13 +1615,14 @@ IMAGEGEN_MODELS = {
         "size_gb": 12,
         "min_vram_gb": 16,
     },
-    "flux-schnell": {
-        "name": "flux-schnell",
-        "display_name": "FLUX.1 Schnell",
-        "huggingface_id": "black-forest-labs/FLUX.1-schnell",
-        "description": "Fast high-quality image generation",
-        "size_gb": 34,
+    "flux2-dev": {
+        "name": "flux2-dev",
+        "display_name": "FLUX.2 Dev (NVFP4)",
+        "huggingface_id": "black-forest-labs/FLUX.2-dev-NVFP4",
+        "description": "32B param rectified flow transformer - requires HF auth",
+        "size_gb": 17,
         "min_vram_gb": 24,
+        "gated": True,
     },
 }
 
