@@ -4,10 +4,11 @@ Universal Image Generation Server
 Supports multiple diffusion models with a Gradio web interface and REST API.
 
 Usage:
-    python server.py --model qwen-image-2512
-    python server.py --model stable-diffusion-xl
-    python server.py --model sd35-large-tensorrt
-    python server.py --model flux1-dev  # requires HF auth
+    python server.py --model qwen-image-2512      # Qwen's model (41GB)
+    python server.py --model stable-diffusion-xl  # SDXL (12GB)
+    python server.py --model flux1-schnell        # FLUX.1 Schnell - fast! (Apache 2.0)
+    python server.py --model flux1-dev            # FLUX.1 Dev - HQ (gated)
+    python server.py --model sd35-medium          # SD 3.5 Medium (gated)
 """
 
 import argparse
@@ -39,6 +40,15 @@ MODEL_CONFIGS = {
         "default_size": (1024, 1024),
         "dtype": "float16",
     },
+    "flux1-schnell": {
+        "repo_id": "black-forest-labs/FLUX.1-schnell",
+        "pipeline_class": "FluxPipeline",
+        "default_steps": 4,  # Schnell is optimized for 1-4 steps
+        "default_guidance": 0.0,  # CFG not needed for schnell
+        "default_size": (1024, 1024),
+        "dtype": "bfloat16",
+        # Apache 2.0 license - UNGATED!
+    },
     "flux1-dev": {
         "repo_id": "black-forest-labs/FLUX.1-dev",
         "pipeline_class": "FluxPipeline",
@@ -46,15 +56,16 @@ MODEL_CONFIGS = {
         "default_guidance": 3.5,
         "default_size": (1024, 1024),
         "dtype": "bfloat16",
-        "gated": True,  # Requires HF authentication & license acceptance
+        "gated": True,  # Requires HF auth & license
     },
-    "sd35-large-tensorrt": {
-        "repo_id": "stabilityai/stable-diffusion-3.5-large-tensorrt",
+    "sd35-medium": {
+        "repo_id": "stabilityai/stable-diffusion-3.5-medium",
         "pipeline_class": "StableDiffusion3Pipeline",
         "default_steps": 28,
         "default_guidance": 4.5,
         "default_size": (1024, 1024),
         "dtype": "float16",
+        "gated": True,  # Requires HF auth & license
     },
 }
 

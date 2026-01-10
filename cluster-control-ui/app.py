@@ -1615,22 +1615,31 @@ IMAGEGEN_MODELS = {
         "size_gb": 12,
         "min_vram_gb": 16,
     },
+    "flux1-schnell": {
+        "name": "flux1-schnell",
+        "display_name": "FLUX.1 Schnell",
+        "huggingface_id": "black-forest-labs/FLUX.1-schnell",
+        "description": "Fast FLUX model - Apache 2.0 license (ungated)",
+        "size_gb": 34,
+        "min_vram_gb": 24,
+    },
     "flux1-dev": {
         "name": "flux1-dev",
         "display_name": "FLUX.1 Dev",
         "huggingface_id": "black-forest-labs/FLUX.1-dev",
-        "description": "High-quality image gen - requires HF auth & license",
+        "description": "High-quality FLUX - requires HF auth & license",
         "size_gb": 34,
         "min_vram_gb": 24,
         "gated": True,
     },
-    "sd35-large-tensorrt": {
-        "name": "sd35-large-tensorrt",
-        "display_name": "SD 3.5 Large TensorRT",
-        "huggingface_id": "stabilityai/stable-diffusion-3.5-large-tensorrt",
-        "description": "TensorRT optimized SD 3.5 - fast inference",
-        "size_gb": 16,
+    "sd35-medium": {
+        "name": "sd35-medium",
+        "display_name": "SD 3.5 Medium",
+        "huggingface_id": "stabilityai/stable-diffusion-3.5-medium",
+        "description": "Stable Diffusion 3.5 Medium - requires HF auth",
+        "size_gb": 18,
         "min_vram_gb": 16,
+        "gated": True,
     },
 }
 
