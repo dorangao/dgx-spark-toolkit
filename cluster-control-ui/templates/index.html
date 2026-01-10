@@ -1127,7 +1127,7 @@
       <article class="stat-card">
         <small class="muted">Native monitoring</small>
         <strong>SSE Active</strong>
-        <small class="muted">Real-time via Cluster Status tab</small>
+        <small class="muted">Real-time via Ops Center tab</small>
       </article>
       <article class="stat-card">
         <small class="muted">Managed nodes</small>
@@ -1146,7 +1146,7 @@
         <button class="tab-btn active" data-tab-target="overview">Overview</button>
         <button class="tab-btn" data-tab-target="llm">🤖 LLM</button>
         <button class="tab-btn" data-tab-target="imagegen">🎨 Image Gen</button>
-        <button class="tab-btn" data-tab-target="cluster">Cluster Status</button>
+        <button class="tab-btn" data-tab-target="cluster">⚙️ Ops Center</button>
         {% if status_hosts %}
           <button class="tab-btn" data-tab-target="utilization">Node Utilization</button>
         {% endif %}
@@ -1176,7 +1176,7 @@
                 </div>
               </div>
               <p class="muted" style="margin-top:1rem;">
-                <strong>Tip:</strong> Use the <em>Cluster Status</em> tab for all operations including native Wake-on-LAN and real-time monitoring.
+                <strong>Tip:</strong> Use the <em>Ops Center</em> tab for all operations including native Wake-on-LAN and real-time monitoring.
               </p>
             </div>
           </div>
@@ -1186,7 +1186,7 @@
               <span class="muted">Streaming command output</span>
             </div>
             <div class="panel-body">
-              <pre id="live-output">Awaiting command output. Use "Cluster Status" tab → Operations panel to run commands.</pre>
+              <pre id="live-output">Awaiting command output. Use "Ops Center" tab → Operations panel to run commands.</pre>
             </div>
           </div>
           <div class="panel-card fill-height">
