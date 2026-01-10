@@ -1704,7 +1704,8 @@ def imagegen_models():
 
 
 @app.route("/imagegen/deploy", methods=["POST"])
-def imagegen_deploy():
+@app.route("/imagegen/deploy/<mode>", methods=["POST"])
+def imagegen_deploy(mode=None):
     """Deploy image generation service."""
     data = request.get_json() or {}
     
