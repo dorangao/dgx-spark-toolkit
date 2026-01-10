@@ -90,7 +90,7 @@ def load_pipeline(model_name: str):
     pipeline_classes = {
         "DiffusionPipeline": DiffusionPipeline,
         "StableDiffusionXLPipeline": StableDiffusionXLPipeline,
-        "FluxPipeline": FluxPipeline,
+        "Flux2Pipeline": Flux2Pipeline,
         "StableDiffusion3Pipeline": StableDiffusion3Pipeline,
     }
     
