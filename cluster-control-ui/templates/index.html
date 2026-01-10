@@ -9,21 +9,6 @@
 </head>
 <body>
   <div class="app-shell">
-    <!-- Hero Section -->
-    <header class="hero card">
-      <div>
-        <p class="eyebrow">DGX Spark Toolkit</p>
-        <h1>Cluster Control UI</h1>
-        <p class="muted">Manage your Spark cluster, deploy LLMs, and generate images from one dashboard.</p>
-      </div>
-      <div class="hero-actions">
-        <div class="status-pill {{ 'online' if running else 'offline' }}">
-          {{ 'Cluster Running' if running else 'Cluster Idle' }}
-        </div>
-        <p class="muted">Nodes: <strong>{{ status_hosts|join(', ') }}</strong></p>
-      </div>
-    </header>
-
     <!-- Flash Messages -->
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
@@ -35,62 +20,13 @@
     {% endif %}
     {% endwith %}
 
-    <!-- Quick Stats -->
-    <section class="stat-grid">
-      <article class="stat-card">
-        <small class="muted">Status</small>
-        <strong>{{ 'Running' if running else 'Idle' }}</strong>
-      </article>
-      <article class="stat-card">
-        <small class="muted">Last Event</small>
-        <strong>{{ latest_action.label if latest_action else 'None' }}</strong>
-        {% if latest_action %}<small class="muted">{{ latest_action.finished }}</small>{% endif %}
-      </article>
-      <article class="stat-card">
-        <small class="muted">Nodes</small>
-        <strong>{{ status_hosts|length }}</strong>
-      </article>
-      <article class="stat-card">
-        <small class="muted">History</small>
-        <strong>{{ history|length }}</strong>
-      </article>
-    </section>
-
     <!-- Main Tabbed Panel -->
-    <section class="tabbed-panel card">
+    <section class="tabbed-panel card" style="margin-top: 1rem;">
       <div class="tab-bar">
-        <button class="tab-btn active" data-tab-target="overview">Overview</button>
+        <button class="tab-btn active" data-tab-target="cluster">⚙️ Ops Center</button>
         <button class="tab-btn" data-tab-target="llm">🤖 LLM</button>
         <button class="tab-btn" data-tab-target="imagegen">🎨 Image Gen</button>
-        <button class="tab-btn" data-tab-target="cluster">⚙️ Ops Center</button>
         {% if status_hosts %}<button class="tab-btn" data-tab-target="utilization">📊 Monitoring</button>{% endif %}
-        <button class="tab-btn" data-tab-target="activity">📜 Activity</button>
-      </div>
-
-      <!-- Overview Tab -->
-      <div class="tab-content active" id="tab-overview">
-        <div class="grid-2col">
-          <div class="panel-card">
-            <div class="panel-head">
-              <h3>Quick Start</h3>
-            </div>
-            <div class="mt-md">
-              <p class="muted">Use the tabs above to:</p>
-              <ul style="margin: 1rem 0 0; padding-left: 1.5rem;">
-                <li><strong>🤖 LLM</strong> - Deploy and chat with LLMs (Nemotron, Qwen, etc.)</li>
-                <li><strong>🎨 Image Gen</strong> - Generate images with Qwen-Image or SDXL</li>
-                <li><strong>⚙️ Ops Center</strong> - Manage cluster, view K8s status</li>
-                <li><strong>📊 Monitoring</strong> - Real-time CPU, GPU, disk, network metrics</li>
-              </ul>
-            </div>
-          </div>
-          <div class="panel-card">
-            <div class="panel-head">
-              <h3>Live Output</h3>
-            </div>
-            <pre id="live-output" class="mt-md" style="max-height:300px;overflow-y:auto;">Waiting for command output...</pre>
-          </div>
-        </div>
       </div>
 
       <!-- LLM Tab -->
@@ -403,7 +339,7 @@
       </div>
 
       <!-- Ops Center Tab -->
-      <div class="tab-content" id="tab-cluster">
+      <div class="tab-content active" id="tab-cluster">
         <!-- Operations Panel -->
         <div class="ops-panel">
           <h4><span class="icon">⚡</span> Cluster Operations</h4>
@@ -485,25 +421,6 @@
       </div>
       {% endif %}
 
-      <!-- Activity Tab -->
-      <div class="tab-content" id="tab-activity">
-        <div class="panel-card">
-          <div class="panel-head">
-            <h3>Recent Activity</h3>
-          </div>
-          {% if history %}
-          {% for item in history %}
-          <div style="border-bottom:1px solid var(--border);padding:1rem 0;">
-            <strong>{{ item.label }}</strong> (exit {{ item.returncode }})
-            <p class="muted">{{ item.started }} → {{ item.finished }}</p>
-            {% if item.stdout %}<pre style="font-size:0.8rem;">{{ item.stdout|truncate(500) }}</pre>{% endif %}
-          </div>
-          {% endfor %}
-          {% else %}
-          <p class="muted">No activity yet.</p>
-          {% endif %}
-        </div>
-      </div>
     </section>
   </div>
 

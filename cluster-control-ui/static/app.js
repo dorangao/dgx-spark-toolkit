@@ -1397,6 +1397,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   
+  // Start cluster status on load (Ops Center is default tab)
+  clusterStatus.start();
+  
   Tabs.onActivate('utilization', () => {
     const toggle = document.getElementById('tracking-toggle');
     if (toggle?.checked && !hostMetrics.stream) {
