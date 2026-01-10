@@ -955,3 +955,210 @@ code {
   .tab-bar { gap: var(--space-xs); }
   .tab-btn { padding: 0.5rem 0.75rem; font-size: var(--font-size-sm); }
 }
+
+/* --------------------------------------------------------------------------
+   Image Gallery
+   -------------------------------------------------------------------------- */
+.image-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-md);
+}
+
+.gallery-item {
+  position: relative;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--panel-muted);
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.gallery-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.gallery-item img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.gallery-item-info {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, rgba(0,0,0,0.8));
+  color: white;
+  padding: var(--space-md) var(--space-sm) var(--space-sm);
+  font-size: var(--font-size-xs);
+}
+
+.gallery-item-time {
+  opacity: 0.8;
+}
+
+.gallery-item-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   History List
+   -------------------------------------------------------------------------- */
+.history-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.history-item:hover {
+  background: var(--panel-muted);
+}
+
+.history-item:last-child {
+  border-bottom: none;
+}
+
+.history-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.history-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-prompt {
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  display: flex;
+  gap: var(--space-sm);
+}
+
+/* --------------------------------------------------------------------------
+   Mini Stats
+   -------------------------------------------------------------------------- */
+.stat-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-md);
+}
+
+.stat-mini {
+  text-align: center;
+  padding: var(--space-md);
+  background: var(--panel-muted);
+  border-radius: var(--radius-sm);
+}
+
+.stat-mini-value {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.stat-mini-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+/* Stats by model */
+#stats-by-model .model-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+}
+
+#stats-by-model .model-stat:last-child {
+  border-bottom: none;
+}
+
+.model-stat-name {
+  font-weight: 500;
+}
+
+.model-stat-info {
+  color: var(--text-muted);
+}
+
+/* Image modal */
+.image-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.9);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+}
+
+.image-modal-content {
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  gap: var(--space-xl);
+}
+
+.image-modal img {
+  max-width: 60vw;
+  max-height: 80vh;
+  border-radius: var(--radius-lg);
+}
+
+.image-modal-info {
+  background: var(--panel-bg);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  min-width: 300px;
+  max-width: 400px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.image-modal-close {
+  position: absolute;
+  top: var(--space-lg);
+  right: var(--space-lg);
+  background: rgba(255,255,255,0.2);
+  border: none;
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1.5rem;
+  transition: background 0.2s;
+}
+
+.image-modal-close:hover {
+  background: rgba(255,255,255,0.3);
+}

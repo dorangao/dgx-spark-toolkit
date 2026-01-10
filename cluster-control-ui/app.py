@@ -1963,6 +1963,81 @@ def imagegen_generate():
         return jsonify({"success": False, "error": str(e)})
 
 
+@app.route("/imagegen/proxy/history", methods=["GET"])
+def imagegen_proxy_history():
+    """Proxy to image generation history API."""
+    status = _get_imagegen_status()
+    if not status.get("endpoint"):
+        return jsonify({"success": False, "error": "Service not available"})
+    
+    try:
+        limit = request.args.get("limit", 50)
+        offset = request.args.get("offset", 0)
+        model = request.args.get("model", "")
+        
+        url = f"{status['endpoint']}/api/history?limit={limit}&offset={offset}"
+        if model:
+            url += f"&model={model}"
+        
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode())
+            return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/imagegen/proxy/stats", methods=["GET"])
+def imagegen_proxy_stats():
+    """Proxy to image generation stats API."""
+    status = _get_imagegen_status()
+    if not status.get("endpoint"):
+        return jsonify({"success": False, "error": "Service not available"})
+    
+    try:
+        url = f"{status['endpoint']}/api/stats"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode())
+            return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/imagegen/proxy/image/<gen_id>", methods=["GET"])
+def imagegen_proxy_image(gen_id: str):
+    """Proxy to get a generated image."""
+    status = _get_imagegen_status()
+    if not status.get("endpoint"):
+        return jsonify({"success": False, "error": "Service not available"}), 404
+    
+    try:
+        url = f"{status['endpoint']}/api/image/{gen_id}"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=30) as response:
+            image_data = response.read()
+            return Response(image_data, mimetype="image/png")
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+
+
+@app.route("/imagegen/proxy/image/<gen_id>/metadata", methods=["GET"])
+def imagegen_proxy_image_metadata(gen_id: str):
+    """Proxy to get image metadata."""
+    status = _get_imagegen_status()
+    if not status.get("endpoint"):
+        return jsonify({"success": False, "error": "Service not available"})
+    
+    try:
+        url = f"{status['endpoint']}/api/image/{gen_id}/metadata"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode())
+            return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
 # --------------------------------------------------------------------------
 # Kubernetes Dashboard Token
 # --------------------------------------------------------------------------

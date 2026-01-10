@@ -342,6 +342,64 @@
           </div>
           <pre id="imagegen-logs" class="logs-container mt-md">No logs available.</pre>
         </div>
+        
+        <!-- History & Stats -->
+        <div class="grid-2col mt-md">
+          <!-- Generation Stats -->
+          <div class="panel-card">
+            <div class="panel-head">
+              <h3>📊 Generation Stats</h3>
+              <button class="ops-btn sm secondary" onclick="imagegenLoadStats()">🔄 Refresh</button>
+            </div>
+            <div id="imagegen-stats" class="mt-md">
+              <div class="stat-mini-grid">
+                <div class="stat-mini">
+                  <span class="stat-mini-value" id="stats-total">-</span>
+                  <span class="stat-mini-label">Total</span>
+                </div>
+                <div class="stat-mini">
+                  <span class="stat-mini-value" id="stats-avg-time">-</span>
+                  <span class="stat-mini-label">Avg Time</span>
+                </div>
+              </div>
+              <div id="stats-by-model" class="mt-md"></div>
+            </div>
+          </div>
+          
+          <!-- Quick History -->
+          <div class="panel-card">
+            <div class="panel-head">
+              <h3>🕐 Recent Generations</h3>
+              <button class="ops-btn sm secondary" onclick="imagegenLoadHistory()">🔄 Refresh</button>
+            </div>
+            <div id="imagegen-history-list" class="mt-md history-list">
+              <p class="muted">No history yet. Generate some images!</p>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Image Gallery -->
+        <div class="panel-card mt-md">
+          <div class="panel-head">
+            <h3>🖼️ Image Gallery</h3>
+            <div class="flex-row gap-sm">
+              <select id="gallery-model-filter" class="sm" onchange="imagegenLoadGallery()">
+                <option value="">All Models</option>
+                <option value="qwen-image-2512">Qwen-Image-2512</option>
+                <option value="stable-diffusion-xl">SDXL</option>
+                <option value="flux2-dev">FLUX.2 Dev</option>
+                <option value="sd35-medium">SD 3.5 Medium</option>
+              </select>
+              <button class="ops-btn sm secondary" onclick="imagegenLoadGallery()">🔄 Refresh</button>
+            </div>
+          </div>
+          <div id="imagegen-gallery" class="image-gallery mt-md">
+            <p class="muted">No images yet. Generate some!</p>
+          </div>
+          <div class="flex-row mt-md" style="justify-content:center;">
+            <button class="ops-btn sm secondary" id="gallery-load-more" onclick="imagegenLoadMoreGallery()" style="display:none;">Load More</button>
+          </div>
+        </div>
       </div>
 
       <!-- Ops Center Tab -->

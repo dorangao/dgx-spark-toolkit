@@ -1503,3 +1503,217 @@ window.hideOpsOutput = () => {
   const panel = document.getElementById('ops-output-panel');
   if (panel) panel.style.display = 'none';
 };
+
+// ============================================================================
+// Image Generation History & Gallery
+// ============================================================================
+
+let galleryOffset = 0;
+const GALLERY_PAGE_SIZE = 20;
+
+window.imagegenLoadStats = async () => {
+  try {
+    const resp = await fetch('/imagegen/proxy/stats');
+    if (!resp.ok) throw new Error('Failed to load stats');
+    const data = await resp.json();
+    
+    if (!data.success) throw new Error(data.error || 'Unknown error');
+    
+    const stats = data.stats;
+    
+    // Update totals
+    document.getElementById('stats-total').textContent = stats.total_generations || 0;
+    
+    // Calculate overall avg time
+    let totalTime = 0, totalCount = 0;
+    if (stats.by_model) {
+      for (const [, m] of Object.entries(stats.by_model)) {
+        totalTime += (m.avg_time_ms || 0) * (m.count || 0);
+        totalCount += m.count || 0;
+      }
+    }
+    const avgTime = totalCount > 0 ? Math.round(totalTime / totalCount) : 0;
+    document.getElementById('stats-avg-time').textContent = avgTime ? `${(avgTime/1000).toFixed(1)}s` : '-';
+    
+    // Stats by model
+    const byModelEl = document.getElementById('stats-by-model');
+    if (stats.by_model && Object.keys(stats.by_model).length > 0) {
+      byModelEl.innerHTML = '<h4 style="font-size:0.85rem;margin-bottom:0.5rem;">By Model</h4>' +
+        Object.entries(stats.by_model).map(([model, m]) => `
+          <div class="model-stat">
+            <span class="model-stat-name">${model}</span>
+            <span class="model-stat-info">${m.count} imgs, ${(m.avg_time_ms/1000).toFixed(1)}s avg</span>
+          </div>
+        `).join('');
+    } else {
+      byModelEl.innerHTML = '<p class="muted">No data yet</p>';
+    }
+  } catch (e) {
+    console.error('Load stats error:', e);
+  }
+};
+
+window.imagegenLoadHistory = async () => {
+  try {
+    const resp = await fetch('/imagegen/proxy/history?limit=10');
+    if (!resp.ok) throw new Error('Failed to load history');
+    const data = await resp.json();
+    
+    if (!data.success) throw new Error(data.error || 'Unknown error');
+    
+    const listEl = document.getElementById('imagegen-history-list');
+    
+    if (!data.history || data.history.length === 0) {
+      listEl.innerHTML = '<p class="muted">No history yet. Generate some images!</p>';
+      return;
+    }
+    
+    listEl.innerHTML = data.history.map(h => `
+      <div class="history-item" onclick="imagegenShowImage('${h.id}')">
+        <img src="/imagegen/proxy/image/${h.id}" class="history-thumb" alt="thumb" 
+             onerror="this.style.display='none'">
+        <div class="history-details">
+          <div class="history-prompt">${escapeHtml(h.prompt.substring(0, 60))}${h.prompt.length > 60 ? '...' : ''}</div>
+          <div class="history-meta">
+            <span>${h.width}×${h.height}</span>
+            <span>${(h.generation_time_ms/1000).toFixed(1)}s</span>
+            <span>${formatTimestamp(h.timestamp)}</span>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Load history error:', e);
+  }
+};
+
+window.imagegenLoadGallery = async (append = false) => {
+  try {
+    if (!append) galleryOffset = 0;
+    
+    const modelFilter = document.getElementById('gallery-model-filter')?.value || '';
+    const url = `/imagegen/proxy/history?limit=${GALLERY_PAGE_SIZE}&offset=${galleryOffset}${modelFilter ? '&model=' + modelFilter : ''}`;
+    
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('Failed to load gallery');
+    const data = await resp.json();
+    
+    if (!data.success) throw new Error(data.error || 'Unknown error');
+    
+    const galleryEl = document.getElementById('imagegen-gallery');
+    const loadMoreBtn = document.getElementById('gallery-load-more');
+    
+    if (!data.history || data.history.length === 0) {
+      if (!append) {
+        galleryEl.innerHTML = '<p class="muted">No images yet. Generate some!</p>';
+      }
+      loadMoreBtn.style.display = 'none';
+      return;
+    }
+    
+    const items = data.history.map(h => `
+      <div class="gallery-item" onclick="imagegenShowImage('${h.id}')">
+        <img src="/imagegen/proxy/image/${h.id}" alt="${escapeHtml(h.prompt.substring(0, 30))}"
+             onerror="this.parentElement.style.display='none'">
+        <div class="gallery-item-info">
+          <div class="gallery-item-time">${formatTimestamp(h.timestamp)}</div>
+          <div class="gallery-item-meta">
+            <span>${h.width}×${h.height}</span>
+            <span>${(h.generation_time_ms/1000).toFixed(1)}s</span>
+          </div>
+        </div>
+      </div>
+    `).join('');
+    
+    if (append) {
+      galleryEl.insertAdjacentHTML('beforeend', items);
+    } else {
+      galleryEl.innerHTML = items;
+    }
+    
+    loadMoreBtn.style.display = data.history.length >= GALLERY_PAGE_SIZE ? 'block' : 'none';
+    galleryOffset += data.history.length;
+  } catch (e) {
+    console.error('Load gallery error:', e);
+  }
+};
+
+window.imagegenLoadMoreGallery = () => imagegenLoadGallery(true);
+
+window.imagegenShowImage = async (id) => {
+  try {
+    const resp = await fetch(`/imagegen/proxy/image/${id}/metadata`);
+    if (!resp.ok) throw new Error('Failed to load metadata');
+    const data = await resp.json();
+    
+    if (!data.success) throw new Error(data.error || 'Unknown error');
+    
+    const meta = data.metadata;
+    
+    // Create modal
+    const modal = document.createElement('div');
+    modal.className = 'image-modal';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    
+    modal.innerHTML = `
+      <button class="image-modal-close" onclick="this.parentElement.remove()">&times;</button>
+      <div class="image-modal-content">
+        <img src="/imagegen/proxy/image/${id}" alt="Generated image">
+        <div class="image-modal-info">
+          <h3 style="margin-top:0;">Generation Details</h3>
+          <p><strong>Prompt:</strong></p>
+          <p style="font-size:0.9rem;background:var(--panel-muted);padding:0.5rem;border-radius:4px;">${escapeHtml(meta.prompt)}</p>
+          ${meta.negative_prompt ? `<p><strong>Negative:</strong> ${escapeHtml(meta.negative_prompt)}</p>` : ''}
+          <hr style="border:none;border-top:1px solid var(--border);margin:1rem 0;">
+          <p><strong>Model:</strong> ${meta.model}</p>
+          <p><strong>Resolution:</strong> ${meta.width} × ${meta.height}</p>
+          <p><strong>Steps:</strong> ${meta.steps}</p>
+          <p><strong>Guidance:</strong> ${meta.guidance_scale}</p>
+          <p><strong>Seed:</strong> ${meta.seed}</p>
+          <hr style="border:none;border-top:1px solid var(--border);margin:1rem 0;">
+          <p><strong>Generation Time:</strong> ${(meta.generation_time_ms/1000).toFixed(2)}s</p>
+          <p><strong>Date:</strong> ${new Date(meta.timestamp).toLocaleString()}</p>
+          <p><strong>Node:</strong> ${meta.node_name || 'unknown'}</p>
+          <p><strong>GPU:</strong> ${meta.gpu_name || 'unknown'}</p>
+          <hr style="border:none;border-top:1px solid var(--border);margin:1rem 0;">
+          <a href="/imagegen/proxy/image/${id}" download="image-${id.substring(0,8)}.png" 
+             class="ops-btn primary w-full" style="text-align:center;text-decoration:none;">
+            💾 Download Image
+          </a>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+  } catch (e) {
+    console.error('Show image error:', e);
+    Toast.error('Failed to load image details');
+  }
+};
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function formatTimestamp(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const diff = now - d;
+  
+  if (diff < 60000) return 'Just now';
+  if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
+  if (diff < 604800000) return `${Math.floor(diff/86400000)}d ago`;
+  return d.toLocaleDateString();
+}
+
+// Auto-load stats and history when Image Gen tab is activated
+const originalImagegenTabActivate = Tabs.onActivate;
+Tabs.onActivate('imagegen', () => {
+  imagegenManager.loadStatus();
+  imagegenLoadStats();
+  imagegenLoadHistory();
+  imagegenLoadGallery();
+});
