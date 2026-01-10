@@ -1820,8 +1820,17 @@
   const trackingDefault = {{ 'true' if tracking_default else 'false' }};
   const TRACKING_STORAGE_KEY = 'cluster-ui-tracking';
   const hostHistory = {};
+  const hostNetHistory = {};  // For network speed calculation
   const hostCharts = {};
   const MAX_HISTORY_POINTS = 120;
+  
+  function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
   let metricsEventSource = null;
   let trackingEnabled = false;
   let actionInProgress = false;
@@ -1906,6 +1915,24 @@
     if (entry.ok) {
       const cpu = entry.cpu && typeof entry.cpu.percent === 'number' ? entry.cpu.percent : null;
       const mem = entry.memory && typeof entry.memory.percent === 'number' ? entry.memory.percent : null;
+      
+      // Calculate network speeds
+      let netRx = 0, netTx = 0;
+      if (entry.network) {
+        const prevNet = (hostNetHistory[entry.host] || {}).network || {};
+        const prevTime = (hostNetHistory[entry.host] || {}).time || 0;
+        const timeDiff = (Date.now() - prevTime) / 1000;
+        
+        if (timeDiff > 0 && timeDiff < 10) {
+          Object.entries(entry.network).forEach(([iface, stats]) => {
+            if (prevNet[iface]) {
+              netRx += (stats.rx_bytes - prevNet[iface].rx_bytes) / timeDiff / (1024 * 1024);
+              netTx += (stats.tx_bytes - prevNet[iface].tx_bytes) / timeDiff / (1024 * 1024);
+            }
+          });
+        }
+      }
+      
       let gpu = null;
       if (entry.gpus && entry.gpus.length) {
         const utilValues = entry.gpus
@@ -1915,7 +1942,7 @@
           gpu = utilValues.reduce((a, b) => a + b, 0) / utilValues.length;
         }
       }
-      history.push({ ts: Date.now(), cpu, mem, gpu });
+      history.push({ ts: Date.now(), cpu, mem, gpu, netRx: Math.max(0, netRx), netTx: Math.max(0, netTx) });
       if (history.length > MAX_HISTORY_POINTS) {
         history.splice(0, history.length - MAX_HISTORY_POINTS);
       }
@@ -1964,6 +1991,82 @@
             suggestedMax: 100,
             beginAtZero: true,
             ticks: { stepSize: 20 },
+          },
+          x: {
+            ticks: {
+              maxTicksLimit: 6,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  const hostNetCharts = {};
+  
+  function renderNetworkChart(host, canvas, history) {
+    if (!canvas || !history || history.length < 2 || typeof Chart === 'undefined') {
+      return;
+    }
+    if (hostNetCharts[host]) {
+      hostNetCharts[host].destroy();
+    }
+    const labels = history.map(point => new Date(point.ts).toLocaleTimeString());
+    const datasets = [
+      {
+        label: '↓ Download (MB/s)',
+        borderColor: '#22c55e',
+        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+        fill: true,
+        tension: 0.2,
+        pointRadius: 0,
+        borderWidth: 2,
+        data: history.map(p => p.netRx || 0),
+      },
+      {
+        label: '↑ Upload (MB/s)',
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        fill: true,
+        tension: 0.2,
+        pointRadius: 0,
+        borderWidth: 2,
+        data: history.map(p => p.netTx || 0),
+      },
+    ];
+    
+    // Calculate max for y-axis
+    const maxVal = Math.max(
+      ...history.map(p => Math.max(p.netRx || 0, p.netTx || 0)),
+      1
+    );
+    const yMax = Math.ceil(maxVal * 1.2);
+    
+    hostNetCharts[host] = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { 
+          legend: { position: 'bottom' },
+          title: {
+            display: true,
+            text: '🌐 Network Speed',
+            font: { size: 12 },
+          }
+        },
+        scales: {
+          y: {
+            suggestedMin: 0,
+            suggestedMax: yMax,
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: 'MB/s',
+              font: { size: 10 },
+            },
           },
           x: {
             ticks: {
@@ -2046,8 +2149,91 @@
           gpuNote.textContent = entry.gpu_error ? `GPU: ${entry.gpu_error}` : 'No GPUs detected.';
           card.appendChild(gpuNote);
         }
+        
+        // Disk Usage
+        if (entry.disk && entry.disk.length) {
+          const diskSection = document.createElement('div');
+          diskSection.style.marginTop = '0.75rem';
+          diskSection.style.paddingTop = '0.75rem';
+          diskSection.style.borderTop = '1px solid #e2e8f0';
+          
+          const diskTitle = document.createElement('div');
+          diskTitle.className = 'metric-row';
+          diskTitle.style.fontWeight = '600';
+          diskTitle.textContent = '💾 Disk Usage';
+          diskSection.appendChild(diskTitle);
+          
+          entry.disk.slice(0, 3).forEach(d => {
+            const diskRow = document.createElement('div');
+            diskRow.className = 'metric-row';
+            diskRow.style.fontSize = '0.85rem';
+            const barWidth = Math.min(d.percent, 100);
+            const barColor = d.percent > 90 ? '#ef4444' : d.percent > 75 ? '#f59e0b' : '#22c55e';
+            diskRow.innerHTML = `
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <code style="min-width: 60px; font-size: 0.75rem;">${d.mount}</code>
+                <div style="flex: 1; background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden;">
+                  <div style="width: ${barWidth}%; height: 100%; background: ${barColor};"></div>
+                </div>
+                <span style="min-width: 100px; text-align: right;">${d.used_gb}/${d.total_gb} GB</span>
+                <span style="min-width: 45px; text-align: right;">${d.percent}%</span>
+              </div>
+            `;
+            diskSection.appendChild(diskRow);
+          });
+          card.appendChild(diskSection);
+        }
+        
+        // Network Stats
+        if (entry.network && Object.keys(entry.network).length) {
+          const netSection = document.createElement('div');
+          netSection.style.marginTop = '0.75rem';
+          netSection.style.paddingTop = '0.75rem';
+          netSection.style.borderTop = '1px solid #e2e8f0';
+          
+          const netTitle = document.createElement('div');
+          netTitle.className = 'metric-row';
+          netTitle.style.fontWeight = '600';
+          netTitle.textContent = '🌐 Network I/O';
+          netSection.appendChild(netTitle);
+          
+          // Calculate speeds if we have previous data
+          const prevNet = (hostNetHistory[entry.host] || {}).network || {};
+          const prevTime = (hostNetHistory[entry.host] || {}).time || 0;
+          const currTime = Date.now();
+          const timeDiff = (currTime - prevTime) / 1000; // seconds
+          
+          Object.entries(entry.network).slice(0, 4).forEach(([iface, stats]) => {
+            const netRow = document.createElement('div');
+            netRow.className = 'metric-row';
+            netRow.style.fontSize = '0.85rem';
+            
+            let speedText = '';
+            if (prevNet[iface] && timeDiff > 0 && timeDiff < 10) {
+              const rxSpeed = (stats.rx_bytes - prevNet[iface].rx_bytes) / timeDiff / (1024 * 1024);
+              const txSpeed = (stats.tx_bytes - prevNet[iface].tx_bytes) / timeDiff / (1024 * 1024);
+              speedText = ` (↓${rxSpeed.toFixed(1)} MB/s ↑${txSpeed.toFixed(1)} MB/s)`;
+            }
+            
+            netRow.innerHTML = `
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <code style="min-width: 80px; font-size: 0.75rem;">${iface}</code>
+                <span style="color: #22c55e;">↓ ${formatBytes(stats.rx_bytes)}</span>
+                <span style="color: #3b82f6;">↑ ${formatBytes(stats.tx_bytes)}</span>
+                <span style="color: #64748b; font-size: 0.75rem;">${speedText}</span>
+              </div>
+            `;
+            netSection.appendChild(netRow);
+          });
+          
+          // Store current network stats for speed calculation
+          hostNetHistory[entry.host] = { network: entry.network, time: currTime };
+          
+          card.appendChild(netSection);
+        }
       }
 
+      // CPU/Memory/GPU Chart
       const chartWrap = document.createElement('div');
       chartWrap.className = 'chart-container';
       const history = hostHistory[entry.host] || [];
@@ -2056,7 +2242,7 @@
         const chartId = `chart-${sanitizeId(entry.host)}`;
         canvas.id = chartId;
         chartWrap.appendChild(canvas);
-        chartsToRender.push({ host: entry.host, chartId });
+        chartsToRender.push({ host: entry.host, chartId, type: 'main' });
       } else {
         const waiting = document.createElement('p');
         waiting.className = 'muted';
@@ -2064,6 +2250,21 @@
         chartWrap.appendChild(waiting);
       }
       card.appendChild(chartWrap);
+      
+      // Network Speed Chart
+      const hasNetData = history.some(p => p.netRx > 0 || p.netTx > 0);
+      if (history.length > 1 && hasNetData) {
+        const netChartWrap = document.createElement('div');
+        netChartWrap.className = 'chart-container';
+        netChartWrap.style.marginTop = '0.5rem';
+        const netCanvas = document.createElement('canvas');
+        const netChartId = `netchart-${sanitizeId(entry.host)}`;
+        netCanvas.id = netChartId;
+        netChartWrap.appendChild(netCanvas);
+        card.appendChild(netChartWrap);
+        chartsToRender.push({ host: entry.host, chartId: netChartId, type: 'network' });
+      }
+      
       grid.appendChild(card);
     });
     hostMetricsContainer.innerHTML = '';
@@ -2071,7 +2272,11 @@
     chartsToRender.forEach(item => {
       const canvas = document.getElementById(item.chartId);
       const history = hostHistory[item.host] || [];
-      renderTrendChart(item.host, canvas, history);
+      if (item.type === 'network') {
+        renderNetworkChart(item.host, canvas, history);
+      } else {
+        renderTrendChart(item.host, canvas, history);
+      }
     });
   }
 

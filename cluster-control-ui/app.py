@@ -77,6 +77,7 @@ REMOTE_METRICS_SCRIPT = textwrap.dedent(
 import json
 import subprocess
 import time
+import os
 
 
 def _safe_float(value, default=None):
@@ -147,6 +148,90 @@ def _memory_usage():
     }
 
 
+def _disk_usage():
+    disks = []
+    # Get main filesystem mounts (skip virtual filesystems)
+    skip_fs = {'tmpfs', 'devtmpfs', 'squashfs', 'overlay', 'proc', 'sysfs', 'devpts', 'cgroup', 'cgroup2', 'securityfs', 'pstore', 'efivarfs', 'bpf', 'tracefs', 'debugfs', 'configfs', 'fusectl', 'hugetlbfs', 'mqueue', 'nsfs', 'fuse.lxcfs'}
+    seen_devices = set()
+    
+    try:
+        with open("/proc/mounts", "r") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                device, mount, fstype = parts[0], parts[1], parts[2]
+                
+                # Skip virtual filesystems
+                if fstype in skip_fs:
+                    continue
+                # Skip non-device mounts
+                if not device.startswith('/dev/'):
+                    continue
+                # Skip duplicate devices (same device mounted multiple times)
+                if device in seen_devices:
+                    continue
+                seen_devices.add(device)
+                
+                try:
+                    st = os.statvfs(mount)
+                    total = st.f_blocks * st.f_frsize
+                    free = st.f_bavail * st.f_frsize
+                    used = total - free
+                    
+                    if total > 0:
+                        disks.append({
+                            "mount": mount,
+                            "device": device.split('/')[-1],
+                            "total_gb": round(total / (1024**3), 1),
+                            "used_gb": round(used / (1024**3), 1),
+                            "free_gb": round(free / (1024**3), 1),
+                            "percent": round((used / total) * 100, 1),
+                        })
+                except (OSError, PermissionError):
+                    pass
+    except Exception:
+        pass
+    
+    # Sort by mount point (root first)
+    disks.sort(key=lambda x: (x["mount"] != "/", x["mount"]))
+    return disks
+
+
+def _network_stats():
+    stats = {}
+    try:
+        with open("/proc/net/dev", "r") as f:
+            lines = f.readlines()[2:]  # Skip header lines
+            for line in lines:
+                if ":" not in line:
+                    continue
+                iface, data = line.split(":", 1)
+                iface = iface.strip()
+                
+                # Skip virtual/pod interfaces - only keep physical and tunnel interfaces
+                skip_prefixes = ('lo', 'docker', 'br-', 'veth', 'cali', 'cni', 'flannel', 'weave', 'vxlan')
+                if any(iface.startswith(p) or iface == p for p in skip_prefixes):
+                    continue
+                
+                parts = data.split()
+                if len(parts) >= 10:
+                    rx_bytes = int(parts[0])
+                    tx_bytes = int(parts[8])
+                    
+                    # Only include interfaces with significant traffic (>1MB)
+                    if rx_bytes > 1024*1024 or tx_bytes > 1024*1024:
+                        stats[iface] = {
+                            "rx_bytes": rx_bytes,
+                            "tx_bytes": tx_bytes,
+                            "rx_mb": round(rx_bytes / (1024**2), 2),
+                            "tx_mb": round(tx_bytes / (1024**2), 2),
+                        }
+    except Exception:
+        pass
+    return stats
+
+
 def _gpu_usage():
     # First try standard query
     cmd = [
@@ -212,6 +297,8 @@ def _gpu_usage():
 payload = {
     "cpu": {"percent": round(_cpu_usage(), 1)},
     "memory": _memory_usage(),
+    "disk": _disk_usage(),
+    "network": _network_stats(),
     "collected": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
 }
 gpus, gpu_error = _gpu_usage()
