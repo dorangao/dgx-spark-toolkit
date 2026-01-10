@@ -1031,6 +1031,11 @@
       to { opacity: 1; transform: translateY(0); }
     }
 
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
     #llm-chat-messages::-webkit-scrollbar {
       width: 6px;
     }
@@ -1140,6 +1145,7 @@
       <div class="tab-bar">
         <button class="tab-btn active" data-tab-target="overview">Overview</button>
         <button class="tab-btn" data-tab-target="llm">🤖 LLM</button>
+        <button class="tab-btn" data-tab-target="imagegen">🎨 Image Gen</button>
         <button class="tab-btn" data-tab-target="cluster">Cluster Status</button>
         {% if status_hosts %}
           <button class="tab-btn" data-tab-target="utilization">Node Utilization</button>
@@ -1343,6 +1349,187 @@
             <button class="ops-btn sm secondary" onclick="llmRefreshLogs()">🔄 Refresh</button>
           </div>
           <pre id="llm-logs" style="max-height: 200px; overflow-y: auto; margin-top: 1rem; font-size: 0.8rem; background: #1e1e2e; color: #cdd6f4; padding: 1rem; border-radius: 8px;">No logs available. Deploy a model to see logs.</pre>
+        </div>
+      </div>
+
+      <!-- Image Generation Tab -->
+      <div class="tab-content" id="tab-imagegen">
+        <div class="panel-grid" style="grid-template-columns: 1fr 1.5fr;">
+          <!-- Left: Deployment Controls -->
+          <div class="panel-card">
+            <div class="panel-head">
+              <h3>🚀 Image Gen Deployment</h3>
+            </div>
+            <div style="margin-top: 1rem;">
+              <!-- Status -->
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: #f1f5f9; border-radius: 8px; margin-bottom: 1rem;">
+                <div>
+                  <span style="font-size: 0.85rem; color: #64748b;">Status:</span>
+                  <span id="imagegen-status-badge" class="mode-badge not-deployed" style="margin-left: 0.5rem;">Not Deployed</span>
+                </div>
+                <div>
+                  <span class="health-indicator" title="Service Health">
+                    <span id="imagegen-health-dot" class="health-dot offline"></span> API
+                  </span>
+                </div>
+              </div>
+              
+              <!-- Current Model -->
+              <div style="margin-bottom: 1rem;">
+                <label style="font-size: 0.85rem; color: #64748b;">Current Model:</label>
+                <div id="imagegen-current-model" style="font-weight: 600; font-size: 1rem; margin-top: 0.25rem;">None</div>
+              </div>
+              
+              <!-- Pods Status -->
+              <div style="margin-bottom: 1rem;">
+                <label style="font-size: 0.85rem; color: #64748b;">Pods:</label>
+                <div id="imagegen-pods-status" style="font-size: 0.9rem; margin-top: 0.25rem;">-</div>
+              </div>
+              
+              <!-- Model Selection -->
+              <div style="margin-bottom: 1rem;">
+                <label style="font-size: 0.85rem; color: #64748b; display: block; margin-bottom: 0.5rem;">Deploy Model:</label>
+                <select id="imagegen-model-select" style="width: 100%; padding: 0.6rem; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 0.9rem;">
+                  <option value="qwen-image-2512">Qwen-Image-2512 (41GB) - 2512px output</option>
+                  <option value="stable-diffusion-xl">Stable Diffusion XL (12GB) - 1024px</option>
+                  <option value="flux-schnell">FLUX.1 Schnell (34GB) - Fast</option>
+                </select>
+              </div>
+              
+              <!-- Replicas Selection -->
+              <div style="margin-bottom: 1rem;">
+                <label style="font-size: 0.85rem; color: #64748b; display: block; margin-bottom: 0.5rem;">Replicas:</label>
+                <select id="imagegen-replicas" style="width: 100%; padding: 0.6rem; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 0.9rem;">
+                  <option value="1">1 (Single Node)</option>
+                  <option value="2" selected>2 (Both Nodes)</option>
+                </select>
+              </div>
+              
+              <!-- Deploy Button -->
+              <div style="margin-bottom: 1rem;">
+                <button class="ops-btn gpu" onclick="imagegenDeploy()" style="width: 100%;">
+                  🚀 Deploy
+                </button>
+              </div>
+              
+              <!-- Control Buttons -->
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="ops-btn success sm" onclick="imagegenScale(2)" id="imagegen-scaleup-btn">▲ Scale 2</button>
+                <button class="ops-btn warning sm" onclick="imagegenScale(0)" id="imagegen-scaledown-btn">▼ Scale 0</button>
+                <button class="ops-btn danger sm" onclick="imagegenDelete()" id="imagegen-delete-btn">🗑️ Delete</button>
+                <button class="ops-btn secondary sm" onclick="imagegenRefreshStatus()">🔄 Refresh</button>
+              </div>
+              
+              <!-- Endpoint -->
+              <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;">
+                <h4 style="font-size: 0.9rem; margin: 0 0 0.75rem;">API Endpoint</h4>
+                <div id="imagegen-endpoint" style="font-size: 0.85rem;">
+                  <code style="font-size: 0.8rem;">Not available</code>
+                </div>
+                <div style="margin-top: 0.5rem;">
+                  <a id="imagegen-gradio-link" href="#" target="_blank" style="color: var(--accent); font-size: 0.8rem; display: none;">🎨 Open Gradio UI</a>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Right: Image Generation Interface -->
+          <div class="panel-card" style="display: flex; flex-direction: column;">
+            <div class="panel-head" style="display: flex; justify-content: space-between; align-items: center;">
+              <h3>🖼️ Generate Image</h3>
+              <button class="ops-btn sm secondary" onclick="imagegenClear()">Clear</button>
+            </div>
+            
+            <!-- Prompt Input -->
+            <div style="margin: 1rem 0;">
+              <label style="font-size: 0.85rem; color: #64748b; display: block; margin-bottom: 0.5rem;">Prompt:</label>
+              <textarea id="imagegen-prompt" placeholder="Describe the image you want to create..."
+                style="width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid #e2e8f0; resize: vertical; font-size: 0.9rem; min-height: 80px; font-family: inherit;"></textarea>
+            </div>
+            
+            <div style="margin-bottom: 1rem;">
+              <label style="font-size: 0.85rem; color: #64748b; display: block; margin-bottom: 0.5rem;">Negative Prompt (optional):</label>
+              <input type="text" id="imagegen-negative-prompt" value="blurry, low quality, distorted, watermark"
+                style="width: 100%; padding: 0.6rem; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 0.9rem;">
+            </div>
+            
+            <!-- Settings Row -->
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1rem;">
+              <div>
+                <label style="font-size: 0.75rem; color: #64748b; display: block;">Width</label>
+                <select id="imagegen-width" style="width: 100%; padding: 0.4rem; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 0.85rem;">
+                  <option value="512">512</option>
+                  <option value="768">768</option>
+                  <option value="1024" selected>1024</option>
+                  <option value="1280">1280</option>
+                  <option value="1536">1536</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size: 0.75rem; color: #64748b; display: block;">Height</label>
+                <select id="imagegen-height" style="width: 100%; padding: 0.4rem; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 0.85rem;">
+                  <option value="512">512</option>
+                  <option value="768">768</option>
+                  <option value="1024" selected>1024</option>
+                  <option value="1280">1280</option>
+                  <option value="1536">1536</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size: 0.75rem; color: #64748b; display: block;">Steps</label>
+                <input type="number" id="imagegen-steps" value="25" min="5" max="100"
+                  style="width: 100%; padding: 0.4rem; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 0.85rem;">
+              </div>
+              <div>
+                <label style="font-size: 0.75rem; color: #64748b; display: block;">Guidance</label>
+                <input type="number" id="imagegen-guidance" value="7.5" min="1" max="20" step="0.5"
+                  style="width: 100%; padding: 0.4rem; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 0.85rem;">
+              </div>
+            </div>
+            
+            <div style="display: flex; gap: 0.75rem; margin-bottom: 1rem;">
+              <div style="flex: 1;">
+                <label style="font-size: 0.75rem; color: #64748b; display: block;">Seed (-1 for random)</label>
+                <input type="number" id="imagegen-seed" value="-1"
+                  style="width: 100%; padding: 0.4rem; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 0.85rem;">
+              </div>
+              <div style="display: flex; align-items: end;">
+                <button class="ops-btn primary" onclick="imagegenGenerate()" id="imagegen-generate-btn" style="padding: 0.6rem 2rem;">
+                  🎨 Generate
+                </button>
+              </div>
+            </div>
+            
+            <!-- Generated Image Display -->
+            <div style="flex: 1; min-height: 300px; background: #f8fafc; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
+              <div id="imagegen-placeholder" style="text-align: center; color: #64748b; padding: 2rem;">
+                <div style="font-size: 4rem; opacity: 0.3;">🖼️</div>
+                <p style="margin-top: 1rem;">Generated image will appear here</p>
+                <p style="font-size: 0.8rem; margin-top: 0.5rem;">Deploy the model and enter a prompt to generate</p>
+              </div>
+              <img id="imagegen-result" style="max-width: 100%; max-height: 400px; display: none; border-radius: 8px;">
+              <div id="imagegen-loading" style="display: none; text-align: center;">
+                <div style="font-size: 2rem; animation: spin 1s linear infinite;">⏳</div>
+                <p style="margin-top: 0.5rem; color: #64748b;" id="imagegen-loading-text">Generating...</p>
+              </div>
+            </div>
+            
+            <!-- Download Button -->
+            <div style="margin-top: 1rem; display: flex; justify-content: flex-end;">
+              <button class="ops-btn secondary sm" onclick="imagegenDownload()" id="imagegen-download-btn" disabled>
+                💾 Download PNG
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Logs Panel -->
+        <div class="panel-card" style="margin-top: 1rem;">
+          <div class="panel-head" style="display: flex; justify-content: space-between; align-items: center;">
+            <h3>📋 Deployment Logs</h3>
+            <button class="ops-btn sm secondary" onclick="imagegenRefreshLogs()">🔄 Refresh</button>
+          </div>
+          <pre id="imagegen-logs" style="max-height: 200px; overflow-y: auto; margin-top: 1rem; font-size: 0.8rem; background: #1e1e2e; color: #cdd6f4; padding: 1rem; border-radius: 8px;">No logs available. Deploy the image generation service to see logs.</pre>
         </div>
       </div>
 
@@ -3617,11 +3804,267 @@
         llmLoadModels();
         llmLoadStatus();
       }
+      if (btn.dataset.tabTarget === 'imagegen') {
+        imagegenRefreshStatus();
+      }
     });
   });
 
   // Pre-load LLM models list
   setTimeout(llmLoadModels, 1500);
+
+  // ============================================================
+  // Image Generation Functions
+  // ============================================================
+  
+  let imagegenCurrentImage = null;
+  
+  async function imagegenRefreshStatus() {
+    try {
+      const response = await fetch('/imagegen/status');
+      const status = await response.json();
+      
+      // Update status badge
+      const badge = document.getElementById('imagegen-status-badge');
+      const healthDot = document.getElementById('imagegen-health-dot');
+      const modelDiv = document.getElementById('imagegen-current-model');
+      const podsDiv = document.getElementById('imagegen-pods-status');
+      const endpointDiv = document.getElementById('imagegen-endpoint');
+      const gradioLink = document.getElementById('imagegen-gradio-link');
+      
+      if (status.deployed) {
+        if (status.ready) {
+          badge.textContent = 'Running';
+          badge.className = 'mode-badge running';
+        } else {
+          badge.textContent = 'Starting...';
+          badge.className = 'mode-badge pending';
+        }
+        modelDiv.textContent = status.model || 'Unknown';
+        podsDiv.textContent = `${status.ready_replicas}/${status.replicas} Ready`;
+        
+        if (status.endpoint) {
+          endpointDiv.innerHTML = `<code style="font-size: 0.8rem;">${status.endpoint}</code>`;
+          gradioLink.href = status.endpoint;
+          gradioLink.style.display = 'inline';
+        }
+      } else {
+        badge.textContent = 'Not Deployed';
+        badge.className = 'mode-badge not-deployed';
+        modelDiv.textContent = 'None';
+        podsDiv.textContent = '-';
+        endpointDiv.innerHTML = '<code style="font-size: 0.8rem;">Not available</code>';
+        gradioLink.style.display = 'none';
+      }
+      
+      // Update pods display
+      if (status.pods && status.pods.length > 0) {
+        const podInfo = status.pods.map(p => `${p.name.slice(-12)}: ${p.status} (${p.node || 'pending'})`).join('\n');
+        podsDiv.innerHTML = `<pre style="margin: 0; font-size: 0.75rem; white-space: pre-wrap;">${podInfo}</pre>`;
+      }
+      
+      // Check API health
+      if (status.ready && status.endpoint) {
+        try {
+          const healthResp = await fetch('/imagegen/health');
+          const health = await healthResp.json();
+          healthDot.className = health.healthy ? 'health-dot online' : 'health-dot offline';
+        } catch {
+          healthDot.className = 'health-dot offline';
+        }
+      } else {
+        healthDot.className = 'health-dot offline';
+      }
+      
+    } catch (err) {
+      console.error('Failed to load imagegen status:', err);
+    }
+  }
+  
+  async function imagegenDeploy() {
+    const model = document.getElementById('imagegen-model-select').value;
+    const replicas = parseInt(document.getElementById('imagegen-replicas').value);
+    
+    if (!confirm(`Deploy ${model} with ${replicas} replica(s)?`)) return;
+    
+    try {
+      showToast(`Deploying ${model}...`, 'info');
+      
+      const response = await fetch('/imagegen/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, replicas })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showToast(data.message, 'success');
+        // Start polling for status
+        const pollInterval = setInterval(async () => {
+          await imagegenRefreshStatus();
+          const badge = document.getElementById('imagegen-status-badge');
+          if (badge.textContent === 'Running') {
+            clearInterval(pollInterval);
+            showToast('Image generation service is ready!', 'success');
+          }
+        }, 5000);
+      } else {
+        showToast(`Deploy failed: ${data.error}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Deploy error: ${err}`, 'error');
+    }
+    
+    imagegenRefreshStatus();
+  }
+  
+  async function imagegenScale(replicas) {
+    if (!confirm(`Scale image generation to ${replicas} replica(s)?`)) return;
+    
+    try {
+      const response = await fetch('/imagegen/scale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ replicas })
+      });
+      
+      const data = await response.json();
+      showToast(data.message || data.error, data.success ? 'success' : 'error');
+    } catch (err) {
+      showToast(`Scale error: ${err}`, 'error');
+    }
+    
+    imagegenRefreshStatus();
+  }
+  
+  async function imagegenDelete() {
+    if (!confirm('Delete image generation deployment? This will stop all running pods.')) return;
+    
+    try {
+      const response = await fetch('/imagegen/delete', { method: 'POST' });
+      const data = await response.json();
+      showToast(data.message || data.error, data.success ? 'success' : 'error');
+    } catch (err) {
+      showToast(`Delete error: ${err}`, 'error');
+    }
+    
+    imagegenRefreshStatus();
+  }
+  
+  async function imagegenRefreshLogs() {
+    try {
+      const response = await fetch('/imagegen/logs?lines=100');
+      const data = await response.json();
+      
+      const logsEl = document.getElementById('imagegen-logs');
+      if (data.success) {
+        logsEl.textContent = data.logs || 'No logs available';
+      } else {
+        logsEl.textContent = `Error: ${data.error}`;
+      }
+    } catch (err) {
+      document.getElementById('imagegen-logs').textContent = `Failed to load logs: ${err}`;
+    }
+  }
+  
+  async function imagegenGenerate() {
+    const prompt = document.getElementById('imagegen-prompt').value.trim();
+    if (!prompt) {
+      showToast('Please enter a prompt', 'warning');
+      return;
+    }
+    
+    const generateBtn = document.getElementById('imagegen-generate-btn');
+    const placeholder = document.getElementById('imagegen-placeholder');
+    const resultImg = document.getElementById('imagegen-result');
+    const loading = document.getElementById('imagegen-loading');
+    const loadingText = document.getElementById('imagegen-loading-text');
+    const downloadBtn = document.getElementById('imagegen-download-btn');
+    
+    // Show loading state
+    generateBtn.disabled = true;
+    generateBtn.textContent = '⏳ Generating...';
+    placeholder.style.display = 'none';
+    resultImg.style.display = 'none';
+    loading.style.display = 'block';
+    downloadBtn.disabled = true;
+    
+    const width = parseInt(document.getElementById('imagegen-width').value);
+    const height = parseInt(document.getElementById('imagegen-height').value);
+    const steps = parseInt(document.getElementById('imagegen-steps').value);
+    
+    // Estimate time based on resolution and steps
+    let estimatedTime = 10;
+    if (width >= 1024 && height >= 1024) estimatedTime = 70;
+    if (width >= 1280 || height >= 1280) estimatedTime = 130;
+    if (width >= 1536 || height >= 1536) estimatedTime = 190;
+    estimatedTime = Math.round(estimatedTime * (steps / 25));
+    
+    loadingText.textContent = `Generating ${width}×${height} image (~${estimatedTime}s)...`;
+    
+    try {
+      const response = await fetch('/imagegen/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          negative_prompt: document.getElementById('imagegen-negative-prompt').value,
+          width,
+          height,
+          steps,
+          guidance_scale: parseFloat(document.getElementById('imagegen-guidance').value),
+          seed: parseInt(document.getElementById('imagegen-seed').value),
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success && data.image_base64) {
+        imagegenCurrentImage = data.image_base64;
+        resultImg.src = `data:image/png;base64,${data.image_base64}`;
+        resultImg.style.display = 'block';
+        loading.style.display = 'none';
+        downloadBtn.disabled = false;
+        showToast('Image generated successfully!', 'success');
+      } else {
+        throw new Error(data.error || 'Generation failed');
+      }
+    } catch (err) {
+      loading.style.display = 'none';
+      placeholder.style.display = 'block';
+      placeholder.innerHTML = `
+        <div style="color: #ef4444; font-size: 1.5rem;">❌</div>
+        <p style="color: #ef4444; margin-top: 0.5rem;">Generation failed</p>
+        <p style="font-size: 0.8rem; margin-top: 0.5rem;">${err.message || err}</p>
+      `;
+      showToast(`Generation failed: ${err}`, 'error');
+    } finally {
+      generateBtn.disabled = false;
+      generateBtn.textContent = '🎨 Generate';
+    }
+  }
+  
+  function imagegenDownload() {
+    if (!imagegenCurrentImage) return;
+    
+    const link = document.createElement('a');
+    link.href = `data:image/png;base64,${imagegenCurrentImage}`;
+    link.download = `generated-${Date.now()}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Image downloaded!', 'success');
+  }
+  
+  function imagegenClear() {
+    document.getElementById('imagegen-prompt').value = '';
+    document.getElementById('imagegen-placeholder').style.display = 'block';
+    document.getElementById('imagegen-result').style.display = 'none';
+    document.getElementById('imagegen-loading').style.display = 'none';
+    document.getElementById('imagegen-download-btn').disabled = true;
+    imagegenCurrentImage = null;
+  }
 </script>
 
 <!-- Toast Container -->
