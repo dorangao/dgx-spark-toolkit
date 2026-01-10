@@ -54,7 +54,7 @@ MODEL_CONFIGS = {
         "default_steps": 28,
         "default_guidance": 4.5,
         "default_size": (1024, 1024),
-        "dtype": "float16",
+        "dtype": "bfloat16",  # bfloat16 for better compatibility on GB10
         "gated": True,  # Requires HF auth & license
     },
 }
