@@ -1166,6 +1166,8 @@ def nemotron_deploy_distributed():
         
         trust_flag = "'--trust-remote-code'," if trust_remote else ""
         eager_flag = "'--enforce-eager'" if enforce_eager else ""
+        trust_flag_shell = "--trust-remote-code" if trust_remote else ""
+        eager_flag_shell = "--enforce-eager" if enforce_eager else ""
         
         # Get model-specific environment variables
         model_env_vars = model_config.get("env_vars", {})
@@ -1173,8 +1175,8 @@ def nemotron_deploy_distributed():
         if extra_env_lines:
             extra_env_lines = "\n" + extra_env_lines  # Add leading newline
         
-        # Format env vars as Python dict for entrypoint script
-        model_env_dict = ", ".join([f'"{k}": "{v}"' for k, v in model_env_vars.items()])
+        # Format env vars as Python dict for entrypoint script (using repr for proper escaping)
+        model_env_dict = ", ".join([f"'{k}': '{v}'" for k, v in model_env_vars.items()])
         
         job_yaml = f'''# RayJob to start vLLM server on the Ray cluster
 # Auto-generated for model: {model_display}
@@ -1220,14 +1222,24 @@ spec:
         print('Timeout waiting for cluster')
         sys.exit(1)
     
-    # Set model-specific environment variables
+    # Set model-specific environment variables BEFORE any vLLM imports happen
     model_env = {{{model_env_dict}}}
+    env_prefix = ''
     for k, v in model_env.items():
         os.environ[k] = v
+        env_prefix += f'{{k}}={{v}} '
         print(f'Set env: {{k}}={{v}}')
     
+    # Use shell=True to ensure env vars are set before vllm loads
+    cmd_str = env_prefix + 'vllm serve {hf_id} --host 0.0.0.0 --port 8081 {trust_flag_shell} --dtype {dtype} --distributed-executor-backend ray --tensor-parallel-size {tp_size} --pipeline-parallel-size {pp_size} --max-model-len {max_model_len} --gpu-memory-utilization {gpu_util} --download-dir /models {eager_flag_shell}'
+    
+    print(f'Running: {{cmd_str}}')
+    subprocess.run(cmd_str, shell=True)
+    sys.exit(0)  # Exit after vllm finishes
+    
+    # Legacy array cmd (kept for reference)
     cmd = [
-        'vllm', 'serve', '{hf_id}',
+        'vllm', 'serve', 'placeholder',
         '--host', '0.0.0.0',
         '--port', '8081',
         {trust_flag}
