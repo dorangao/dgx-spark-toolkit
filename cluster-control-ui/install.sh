@@ -128,6 +128,24 @@ if [[ ! -f "$SCRIPT_DIR/app.py" ]]; then
     exit 1
 fi
 
+# Verify required directories exist
+for dir in templates static; do
+    if [[ ! -d "$SCRIPT_DIR/$dir" ]]; then
+        log_error "$dir/ directory not found in $SCRIPT_DIR"
+        exit 1
+    fi
+done
+
+# Verify critical static files
+if [[ ! -f "$SCRIPT_DIR/static/styles.css" ]]; then
+    log_error "static/styles.css not found - UI will not render properly"
+    exit 1
+fi
+if [[ ! -f "$SCRIPT_DIR/static/app.js" ]]; then
+    log_error "static/app.js not found - UI will not function properly"
+    exit 1
+fi
+
 # Verify user exists
 if ! id "$SERVICE_USER" &>/dev/null; then
     log_error "User '$SERVICE_USER' does not exist"
@@ -148,9 +166,11 @@ mkdir -p "$INSTALL_DIR"
 
 # Step 2: Copy application files
 log_step "Copying application files..."
-cp -r "$SCRIPT_DIR/app.py" "$INSTALL_DIR/"
-cp -r "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
+cp "$SCRIPT_DIR/app.py" "$INSTALL_DIR/"
+cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
 cp -r "$SCRIPT_DIR/templates" "$INSTALL_DIR/"
+cp -r "$SCRIPT_DIR/static" "$INSTALL_DIR/"
+log_info "  Copied: app.py, requirements.txt, templates/, static/"
 
 # Step 3: Create virtual environment
 log_step "Creating Python virtual environment..."
@@ -232,6 +252,14 @@ if systemctl is-active --quiet "$SERVICE_NAME"; then
 else
     log_error "Service failed to start. Check: sudo journalctl -u $SERVICE_NAME -n 50"
     exit 1
+fi
+
+# Step 10: Verify static files are accessible
+log_step "Verifying static assets..."
+if [[ -f "$INSTALL_DIR/static/styles.css" && -f "$INSTALL_DIR/static/app.js" ]]; then
+    log_info "Static assets verified ✓"
+else
+    log_warn "Static assets may be missing - check $INSTALL_DIR/static/"
 fi
 
 echo ""
