@@ -441,7 +441,10 @@ class DeploymentManager {
 
   pollStatus(times = [5000, 15000, 30000, 60000]) {
     times.forEach(delay => {
-      setTimeout(() => this.loadStatus(), delay);
+      setTimeout(() => {
+        this.loadStatus();
+        this.loadModels();  // Refresh models to get current_model
+      }, delay);
     });
   }
 
@@ -507,11 +510,21 @@ class LLMManager extends DeploymentManager {
       badge.textContent = modeText[status.mode] || status.mode || 'Unknown';
     }
     
-    // Current model
+    // Current model - update both display and selector
     const modelEl = document.getElementById(this.elements.currentModel);
+    const displayName = status.current_model_display || status.current_model;
+    const modelKey = status.current_model;  // The actual model key for selector
+    
     if (modelEl) {
-      this.currentModel = status.current_model_display || status.current_model;
-      modelEl.textContent = this.currentModel || 'None';
+      modelEl.textContent = displayName || 'None';
+    }
+    
+    // Update model selector to show currently deployed model
+    if (modelKey) {
+      const selector = document.getElementById(this.elements.modelSelector);
+      if (selector) {
+        selector.value = modelKey;
+      }
     }
     
     // Health indicators
