@@ -1075,35 +1075,135 @@ def nemotron_deploy_distributed():
     if not ok:
         return jsonify({"success": False, "message": "Failed to apply RayCluster", "results": results})
     
-    # Step 4: Generate and apply vLLM serve job for selected model
-    # Use the generated job file if it exists (from deploy-distributed.sh)
+    # Step 4: Generate vLLM serve job for the selected model
+    # ALWAYS regenerate to ensure correct model is used
     servejob_file = NEMOTRON_DEPLOYMENT_DIR / "vllm-serve-job-generated.yaml"
-    if not servejob_file.exists():
-        # Fallback to default job file
-        servejob_file = NEMOTRON_DEPLOYMENT_DIR / "vllm-serve-job.yaml"
     
+    # Generate the job YAML with model-specific configuration
+    try:
+        hf_id = model_config.get("huggingface_id", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16")
+        vllm_args = model_config.get("vllm_args", {})
+        dtype = vllm_args.get("dtype", "bfloat16")
+        tp_size = vllm_args.get("tensor_parallel_size", 1)
+        pp_size = vllm_args.get("pipeline_parallel_size", 2)
+        max_model_len = vllm_args.get("max_model_len", 4096)
+        gpu_util = vllm_args.get("gpu_memory_utilization", 0.85)
+        enforce_eager = vllm_args.get("enforce_eager", True)
+        trust_remote = model_config.get("requires_trust_remote_code", True)
+        
+        trust_flag = "'--trust-remote-code'," if trust_remote else ""
+        eager_flag = "'--enforce-eager'" if enforce_eager else ""
+        
+        job_yaml = f'''# RayJob to start vLLM server on the Ray cluster
+# Auto-generated for model: {model_display}
+# Model: {hf_id}
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: vllm-serve
+  namespace: llm-inference
+  labels:
+    app.kubernetes.io/name: vllm-distributed
+    app.kubernetes.io/component: inference-server
+    vllm.model: "{model_name}"
+  annotations:
+    vllm.model-id: "{hf_id}"
+    vllm.display-name: "{model_display}"
+spec:
+  shutdownAfterJobFinishes: false
+  clusterSelector:
+    ray.io/cluster: vllm-cluster
+  entrypoint: |
+    python -c "
+    import ray
+    import subprocess
+    import sys
+    import time
+    
+    ray.init(address='auto')
+    
+    print('Waiting for Ray cluster to be ready...')
+    min_gpus = {pp_size}
+    for i in range(60):
+        nodes = ray.nodes()
+        ready_nodes = [n for n in nodes if n['Alive']]
+        gpu_count = sum(n.get('Resources', {{}}).get('GPU', 0) for n in ready_nodes)
+        print(f'Ready nodes: {{len(ready_nodes)}}, GPUs: {{gpu_count}}')
+        if gpu_count >= min_gpus:
+            print('Cluster ready! Starting vLLM...')
+            break
+        time.sleep(5)
+    else:
+        print('Timeout waiting for cluster')
+        sys.exit(1)
+    
+    cmd = [
+        'vllm', 'serve', '{hf_id}',
+        '--host', '0.0.0.0',
+        '--port', '8081',
+        {trust_flag}
+        '--dtype', '{dtype}',
+        '--distributed-executor-backend', 'ray',
+        '--tensor-parallel-size', '{tp_size}',
+        '--pipeline-parallel-size', '{pp_size}',
+        '--max-model-len', '{max_model_len}',
+        '--gpu-memory-utilization', '{gpu_util}',
+        '--download-dir', '/models',
+        {eager_flag}
+    ]
+    
+    print(f'Running: {{\\\" \\\".join(cmd)}}')
+    subprocess.run(cmd)
+    "
+  runtimeEnvYAML: |
+    env_vars:
+      HF_HOME: /models/.cache
+      TRANSFORMERS_CACHE: /models/.cache
+      HF_HUB_CACHE: /models/.cache/hub
+      VLLM_USE_CUDA_GRAPH: "0"
+      NCCL_SOCKET_IFNAME: "^lo,docker"
+      NCCL_IB_DISABLE: "1"
+      NCCL_DEBUG: "WARN"
+      NCCL_P2P_DISABLE: "1"
+      GLOO_SOCKET_IFNAME: "enP7s7,enp1s0f1np1"
+      NCCL_NET: "Socket"
+  submitterPodTemplate:
+    spec:
+      containers:
+        - name: job-submitter
+          image: avarok/vllm-dgx-spark:v11
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token-secret
+                  key: HF_TOKEN
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+      restartPolicy: Never
+'''
+        
+        with open(servejob_file, 'w') as f:
+            f.write(job_yaml)
+        
+        results.append({
+            "step": "generate_job_yaml",
+            "success": True,
+            "output": f"Generated job YAML for {model_display} ({hf_id})"
+        })
+    except Exception as e:
+        results.append({"step": "generate_job_yaml", "success": False, "output": str(e)})
+    
+    # Apply the generated job file
     if servejob_file.exists():
         ok, output = _run_kubectl_action(["apply", "-f", str(servejob_file)], timeout=30)
         results.append({"step": "apply_servejob", "success": ok, "output": output})
-    else:
-        # If no job file, run deploy script to generate it
-        deploy_script = NEMOTRON_DEPLOYMENT_DIR / "deploy-distributed.sh"
-        if deploy_script.exists():
-            try:
-                result = subprocess.run(
-                    [str(deploy_script), "--model", model_name],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                    env={**os.environ, "HF_TOKEN": os.environ.get("HF_TOKEN", "")}
-                )
-                results.append({
-                    "step": "run_deploy_script",
-                    "success": result.returncode == 0,
-                    "output": result.stdout + result.stderr
-                })
-            except Exception as e:
-                results.append({"step": "run_deploy_script", "success": False, "output": str(e)})
     
     # Step 5: Apply distributed service
     service_file = NEMOTRON_DEPLOYMENT_DIR / "service-distributed.yaml"
