@@ -5,6 +5,7 @@ import json
 import os
 import re
 import socket
+import sqlite3
 import struct
 import subprocess
 import threading
@@ -12,7 +13,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from flask import (
     Flask,
@@ -1636,6 +1637,110 @@ IMAGEGEN_MODELS = {
 }
 
 
+# Direct access to image generation history (works even when service is down)
+IMAGEGEN_STORAGE_DIR = Path(os.environ.get(
+    "IMAGEGEN_STORAGE_DIR", 
+    "/data/models/image-gen/generated_images"
+))
+IMAGEGEN_DB_PATH = IMAGEGEN_STORAGE_DIR / "history.db"
+
+
+def _imagegen_db_connect() -> Optional[sqlite3.Connection]:
+    """Connect to the image generation history database."""
+    if not IMAGEGEN_DB_PATH.exists():
+        return None
+    try:
+        conn = sqlite3.connect(str(IMAGEGEN_DB_PATH), timeout=5)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except Exception:
+        return None
+
+
+def _imagegen_get_history(limit: int = 50, offset: int = 0, model: str = "") -> List[Dict]:
+    """Get generation history directly from database."""
+    conn = _imagegen_db_connect()
+    if not conn:
+        return []
+    
+    try:
+        query = "SELECT * FROM generations"
+        params = []
+        
+        if model:
+            query += " WHERE model = ?"
+            params.append(model)
+        
+        query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        
+        cursor = conn.execute(query, params)
+        rows = cursor.fetchall()
+        
+        return [dict(row) for row in rows]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
+def _imagegen_get_stats() -> Dict:
+    """Get generation statistics directly from database."""
+    conn = _imagegen_db_connect()
+    if not conn:
+        return {"total_generations": 0, "by_model": {}}
+    
+    try:
+        # Total count
+        total = conn.execute("SELECT COUNT(*) FROM generations").fetchone()[0]
+        
+        # Stats by model
+        by_model = {}
+        rows = conn.execute("""
+            SELECT model, COUNT(*) as count, AVG(generation_time_ms) as avg_time_ms
+            FROM generations 
+            GROUP BY model
+        """).fetchall()
+        
+        for row in rows:
+            by_model[row["model"]] = {
+                "count": row["count"],
+                "avg_time_ms": row["avg_time_ms"] or 0
+            }
+        
+        return {"total_generations": total, "by_model": by_model}
+    except Exception:
+        return {"total_generations": 0, "by_model": {}}
+    finally:
+        conn.close()
+
+
+def _imagegen_get_metadata(gen_id: str) -> Optional[Dict]:
+    """Get metadata for a specific generation."""
+    conn = _imagegen_db_connect()
+    if not conn:
+        return None
+    
+    try:
+        cursor = conn.execute("SELECT * FROM generations WHERE id = ?", (gen_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+
+def _imagegen_get_image_path(gen_id: str) -> Optional[Path]:
+    """Get the path to a generated image file."""
+    # Try common extensions
+    for ext in [".png", ".jpg", ".jpeg", ".webp"]:
+        path = IMAGEGEN_STORAGE_DIR / f"{gen_id}{ext}"
+        if path.exists():
+            return path
+    return None
+
+
 def _get_imagegen_status() -> Dict[str, object]:
     """Get image generation deployment status."""
     result = {
@@ -1965,77 +2070,101 @@ def imagegen_generate():
 
 @app.route("/imagegen/proxy/history", methods=["GET"])
 def imagegen_proxy_history():
-    """Proxy to image generation history API."""
-    status = _get_imagegen_status()
-    if not status.get("endpoint"):
-        return jsonify({"success": False, "error": "Service not available"})
+    """Proxy to image generation history API, with fallback to direct DB access."""
+    limit = int(request.args.get("limit", 50))
+    offset = int(request.args.get("offset", 0))
+    model = request.args.get("model", "")
     
-    try:
-        limit = request.args.get("limit", 50)
-        offset = request.args.get("offset", 0)
-        model = request.args.get("model", "")
-        
-        url = f"{status['endpoint']}/api/history?limit={limit}&offset={offset}"
-        if model:
-            url += f"&model={model}"
-        
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=30) as response:
-            result = json.loads(response.read().decode())
-            return jsonify(result)
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+    # Try the service first if available
+    status = _get_imagegen_status()
+    if status.get("endpoint") and status.get("ready"):
+        try:
+            url = f"{status['endpoint']}/api/history?limit={limit}&offset={offset}"
+            if model:
+                url += f"&model={model}"
+            
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                result = json.loads(response.read().decode())
+                return jsonify(result)
+        except Exception:
+            pass  # Fall through to direct access
+    
+    # Direct database access (works even when service is down)
+    history = _imagegen_get_history(limit, offset, model)
+    return jsonify({"success": True, "history": history, "source": "direct"})
 
 
 @app.route("/imagegen/proxy/stats", methods=["GET"])
 def imagegen_proxy_stats():
-    """Proxy to image generation stats API."""
+    """Proxy to image generation stats API, with fallback to direct DB access."""
+    # Try the service first if available
     status = _get_imagegen_status()
-    if not status.get("endpoint"):
-        return jsonify({"success": False, "error": "Service not available"})
+    if status.get("endpoint") and status.get("ready"):
+        try:
+            url = f"{status['endpoint']}/api/stats"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                result = json.loads(response.read().decode())
+                return jsonify(result)
+        except Exception:
+            pass  # Fall through to direct access
     
-    try:
-        url = f"{status['endpoint']}/api/stats"
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=30) as response:
-            result = json.loads(response.read().decode())
-            return jsonify(result)
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+    # Direct database access (works even when service is down)
+    stats = _imagegen_get_stats()
+    return jsonify({"success": True, "stats": stats, "source": "direct"})
 
 
 @app.route("/imagegen/proxy/image/<gen_id>", methods=["GET"])
 def imagegen_proxy_image(gen_id: str):
-    """Proxy to get a generated image."""
+    """Proxy to get a generated image, with fallback to direct file access."""
+    # Try the service first if available
     status = _get_imagegen_status()
-    if not status.get("endpoint"):
-        return jsonify({"success": False, "error": "Service not available"}), 404
+    if status.get("endpoint") and status.get("ready"):
+        try:
+            url = f"{status['endpoint']}/api/image/{gen_id}"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                image_data = response.read()
+                return Response(image_data, mimetype="image/png")
+        except Exception:
+            pass  # Fall through to direct access
     
-    try:
-        url = f"{status['endpoint']}/api/image/{gen_id}"
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=30) as response:
-            image_data = response.read()
-            return Response(image_data, mimetype="image/png")
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 404
+    # Direct file access (works even when service is down)
+    image_path = _imagegen_get_image_path(gen_id)
+    if image_path and image_path.exists():
+        # Determine mimetype
+        ext = image_path.suffix.lower()
+        mimetypes = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+        mimetype = mimetypes.get(ext, "image/png")
+        
+        with open(image_path, "rb") as f:
+            return Response(f.read(), mimetype=mimetype)
+    
+    return jsonify({"success": False, "error": "Image not found"}), 404
 
 
 @app.route("/imagegen/proxy/image/<gen_id>/metadata", methods=["GET"])
 def imagegen_proxy_image_metadata(gen_id: str):
-    """Proxy to get image metadata."""
+    """Proxy to get image metadata, with fallback to direct DB access."""
+    # Try the service first if available
     status = _get_imagegen_status()
-    if not status.get("endpoint"):
-        return jsonify({"success": False, "error": "Service not available"})
+    if status.get("endpoint") and status.get("ready"):
+        try:
+            url = f"{status['endpoint']}/api/image/{gen_id}/metadata"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                result = json.loads(response.read().decode())
+                return jsonify(result)
+        except Exception:
+            pass  # Fall through to direct access
     
-    try:
-        url = f"{status['endpoint']}/api/image/{gen_id}/metadata"
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=30) as response:
-            result = json.loads(response.read().decode())
-            return jsonify(result)
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+    # Direct database access (works even when service is down)
+    metadata = _imagegen_get_metadata(gen_id)
+    if metadata:
+        return jsonify({"success": True, "metadata": metadata, "source": "direct"})
+    
+    return jsonify({"success": False, "error": "Metadata not found"})
 
 
 # --------------------------------------------------------------------------
