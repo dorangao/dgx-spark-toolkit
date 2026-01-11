@@ -18,9 +18,9 @@ models:
       dtype: "bfloat16"
       tensor_parallel_size: 1
       pipeline_parallel_size: 1
-      max_model_len: 16384
+      max_model_len: 4096  # Reduced from 16384 for GB10 memory
       gpu_memory_utilization: 0.85
-      enforce_eager: false
+      enforce_eager: true  # Enable eager mode for stability
     env_vars: {}
     distributed: false
     min_gpus: 1
