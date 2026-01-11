@@ -89,25 +89,28 @@ models:
     min_gpus: 2
 
   # DeepSeek Coder V2 Lite - Code-focused model
-  # NOTE: DeepSeek V2 uses MLA (Multi-Latent Attention) which requires V0 engine
-  deepseek-coder-v2:
-    name: "deepseek-coder-v2"
-    display_name: "DeepSeek-Coder-V2-Lite-Instruct"
-    huggingface_id: "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
-    description: "DeepSeek's code-focused instruction model"
-    requires_trust_remote_code: true
-    size_gb: 32
-    vllm_args:
-      dtype: "bfloat16"
-      tensor_parallel_size: 1
-      pipeline_parallel_size: 1
-      max_model_len: 8192
-      gpu_memory_utilization: 0.80
-      enforce_eager: true
-    env_vars:
-      VLLM_USE_V1: "0"  # Required for MLA attention support on GB10
-    distributed: false
-    min_gpus: 1
+  # NOTE: DeepSeek V2 uses MLA (Multi-Latent Attention) which is NOT SUPPORTED on GB10
+  # The FlashInfer backend doesn't support MLA, and VLLM_USE_V1=0 doesn't work reliably
+  # This model is DISABLED until vLLM adds proper MLA support for GB10
+  # deepseek-coder-v2:
+  #   name: "deepseek-coder-v2"
+  #   display_name: "DeepSeek-Coder-V2-Lite-Instruct"
+  #   huggingface_id: "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
+  #   description: "DeepSeek's code-focused instruction model (NOT SUPPORTED on GB10)"
+  #   requires_trust_remote_code: true
+  #   size_gb: 32
+  #   vllm_args:
+  #     dtype: "bfloat16"
+  #     tensor_parallel_size: 1
+  #     pipeline_parallel_size: 1
+  #     max_model_len: 8192
+  #     gpu_memory_utilization: 0.80
+  #     enforce_eager: true
+  #   env_vars:
+  #     VLLM_USE_V1: "0"
+  #     VLLM_ATTENTION_BACKEND: "FLASH_ATTN"
+  #   distributed: false
+  #   min_gpus: 1
 
   # Mistral Nemo 12B - Efficient smaller model
   mistral-nemo-12b:
