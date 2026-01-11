@@ -155,44 +155,126 @@ class SSEStream {
     this.onError = options.onError || (() => {});
     this.onStatus = options.onStatus || (() => {});
     this.source = null;
+    
+    // Reconnection settings
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = options.maxReconnectAttempts || 10;
+    this.baseReconnectDelay = options.baseReconnectDelay || 1000;
+    this.maxReconnectDelay = options.maxReconnectDelay || 30000;
+    this.reconnectTimer = null;
+    this.isStopped = true;
+    this.isPageVisible = !document.hidden;
+    
+    // Handle page visibility changes
+    this._handleVisibility = () => {
+      this.isPageVisible = !document.hidden;
+      if (this.isPageVisible && !this.isStopped && !this.source) {
+        // Page became visible, try to reconnect
+        this._scheduleReconnect(0);
+      } else if (!this.isPageVisible && this.source) {
+        // Page hidden - let browser handle, but don't spam errors
+      }
+    };
+    document.addEventListener('visibilitychange', this._handleVisibility);
   }
 
   start() {
-    if (this.source) this.stop();
-    
-    this.onStatus('connecting', '#f59e0b');
-    this.source = new EventSource(this.url);
-    
-    this.source.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        this.onMessage(data);
-        this.onStatus('connected', '#22c55e');
-      } catch (err) {
-        console.error('SSE parse error:', err);
-      }
-    };
-    
-    this.source.onerror = () => {
-      if (this.source.readyState === EventSource.CLOSED) {
-        this.onStatus('disconnected', '#ef4444');
-      } else if (this.source.readyState === EventSource.CONNECTING) {
-        this.onStatus('reconnecting', '#f59e0b');
-      }
-      this.onError();
-    };
-    
-    this.source.onopen = () => {
-      this.onStatus('connected', '#22c55e');
-    };
+    this.isStopped = false;
+    this.reconnectAttempts = 0;
+    this._connect();
   }
 
-  stop() {
+  _connect() {
+    if (this.isStopped) return;
+    if (this.source) this._closeSource();
+    
+    // Don't connect if page is hidden
+    if (!this.isPageVisible) {
+      this.onStatus('paused', '#6b7280');
+      return;
+    }
+    
+    this.onStatus('connecting', '#f59e0b');
+    
+    try {
+      this.source = new EventSource(this.url);
+      
+      this.source.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          this.onMessage(data);
+          this.onStatus('connected', '#22c55e');
+          this.reconnectAttempts = 0; // Reset on successful message
+        } catch (err) {
+          console.warn('SSE parse error:', err);
+        }
+      };
+      
+      this.source.onerror = (e) => {
+        // Don't log errors for expected disconnections
+        if (this.isStopped || !this.isPageVisible) return;
+        
+        this._closeSource();
+        
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          this._scheduleReconnect();
+        } else {
+          this.onStatus('failed', '#ef4444');
+          this.onError();
+        }
+      };
+      
+      this.source.onopen = () => {
+        this.onStatus('connected', '#22c55e');
+        this.reconnectAttempts = 0;
+      };
+    } catch (err) {
+      console.warn('SSE connection error:', err);
+      this._scheduleReconnect();
+    }
+  }
+  
+  _closeSource() {
     if (this.source) {
+      this.source.onmessage = null;
+      this.source.onerror = null;
+      this.source.onopen = null;
       this.source.close();
       this.source = null;
     }
+  }
+  
+  _scheduleReconnect(overrideDelay) {
+    if (this.isStopped) return;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    
+    // Exponential backoff with jitter
+    const delay = overrideDelay !== undefined ? overrideDelay : 
+      Math.min(this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts) + Math.random() * 1000, 
+               this.maxReconnectDelay);
+    
+    this.reconnectAttempts++;
+    this.onStatus(`reconnecting (${this.reconnectAttempts}/${this.maxReconnectAttempts})`, '#f59e0b');
+    
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this._connect();
+    }, delay);
+  }
+
+  stop() {
+    this.isStopped = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this._closeSource();
     this.onStatus('', '');
+  }
+  
+  destroy() {
+    this.stop();
+    document.removeEventListener('visibilitychange', this._handleVisibility);
   }
 }
 
