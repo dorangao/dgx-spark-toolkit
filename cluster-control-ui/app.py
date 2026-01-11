@@ -1638,12 +1638,17 @@ IMAGEGEN_MODELS = {
 
 
 # Direct access to image generation history (works even when service is down)
-# Data may be on either node (local hostPath), so we check both
+# NFS shared storage - accessible from both nodes
 IMAGEGEN_STORAGE_DIR = Path(os.environ.get(
     "IMAGEGEN_STORAGE_DIR", 
-    "/data/models/image-gen/generated_images"
+    "/nfs/imagegen"  # NFS shared storage
 ))
 IMAGEGEN_DB_PATH = IMAGEGEN_STORAGE_DIR / "history.db"
+
+# Legacy fallback paths (for migration period)
+IMAGEGEN_LEGACY_PATHS = [
+    Path("/data/models/image-gen/generated_images"),  # Local hostPath
+]
 IMAGEGEN_REMOTE_NODE = os.environ.get("IMAGEGEN_REMOTE_NODE", "spark-ba63")
 IMAGEGEN_REMOTE_PATH = os.environ.get("IMAGEGEN_REMOTE_PATH", "/data/models/image-gen/generated_images")
 

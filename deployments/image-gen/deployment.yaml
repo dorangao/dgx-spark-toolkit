@@ -62,6 +62,8 @@ spec:
               value: "qwen-image-2512"  # Override via ConfigMap
             - name: HF_HOME
               value: "/models/huggingface"
+            - name: IMAGE_STORAGE_DIR
+              value: "/generated"  # NFS-backed shared storage
             - name: HF_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -90,6 +92,8 @@ spec:
               mountPath: /app
             - name: model-cache
               mountPath: /models
+            - name: generated-images
+              mountPath: /generated
             - name: shm
               mountPath: /dev/shm
           
@@ -120,6 +124,10 @@ spec:
           hostPath:
             path: /data/models/image-gen
             type: DirectoryOrCreate
+        - name: generated-images
+          nfs:
+            server: 10.10.10.1
+            path: /nfs/imagegen
         - name: shm
           emptyDir:
             medium: Memory
