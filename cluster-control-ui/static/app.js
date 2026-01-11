@@ -486,7 +486,6 @@ class LLMManager extends DeploymentManager {
         statusBadge: 'llm-mode-badge',
         currentModel: 'llm-current-model',
         vllmDot: 'llm-vllm-dot',
-        litellmDot: 'llm-litellm-dot',
         logs: 'llm-logs',
       },
     });
@@ -529,12 +528,8 @@ class LLMManager extends DeploymentManager {
     
     // Health indicators
     const vllmDot = document.getElementById(this.elements.vllmDot);
-    const litellmDot = document.getElementById(this.elements.litellmDot);
     if (vllmDot && status.vllm_health) {
       vllmDot.className = `health-dot ${status.vllm_health.healthy ? 'online' : 'offline'}`;
-    }
-    if (litellmDot && status.litellm_health) {
-      litellmDot.className = `health-dot ${status.litellm_health.healthy ? 'online' : 'offline'}`;
     }
     
     // Update buttons
@@ -654,7 +649,7 @@ class LLMManager extends DeploymentManager {
     this.addMessage('user', message);
     inputEl.value = '';
     
-    const useLiteLLM = document.getElementById('llm-use-litellm')?.checked ?? true;
+    const useLiteLLM = document.getElementById('llm-use-litellm')?.checked ?? false;
     const maxTokens = parseInt(document.getElementById('llm-max-tokens')?.value) || 1024;
     const temperature = parseFloat(document.getElementById('llm-temperature')?.value) || 0.7;
     const useStream = document.getElementById('llm-stream')?.checked ?? true;

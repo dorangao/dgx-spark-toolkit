@@ -44,7 +44,6 @@
                 </div>
                 <div class="flex-row gap-md" style="margin-left:auto;">
                   <span class="health-indicator"><span id="llm-vllm-dot" class="health-dot offline"></span> vLLM</span>
-                  <span class="health-indicator"><span id="llm-litellm-dot" class="health-dot offline"></span> LiteLLM</span>
                 </div>
               </div>
               
@@ -81,7 +80,6 @@
                 <h4 style="font-size:0.9rem;margin:0 0 0.75rem;">API Endpoints</h4>
                 <div class="endpoints-info">
                   <div class="endpoint"><span class="endpoint-label">vLLM:</span> <code>192.168.86.203:8081</code></div>
-                  <div class="endpoint"><span class="endpoint-label">LiteLLM:</span> <code>192.168.86.204:4000</code></div>
                   <div class="endpoint"><a href="http://192.168.86.203:8265" target="_blank" style="color:var(--accent);">📊 Ray Dashboard</a></div>
                 </div>
               </div>
@@ -93,8 +91,8 @@
             <div class="panel-head">
               <h3>💬 Chat</h3>
               <div class="flex-row gap-sm">
-                <label style="font-size:0.8rem;" class="flex-row gap-sm">
-                  <input type="checkbox" id="llm-use-litellm" checked> Use LiteLLM
+                <label style="font-size:0.8rem;" class="flex-row gap-sm" title="LiteLLM proxy (disabled - use vLLM direct for dynamic models)">
+                  <input type="checkbox" id="llm-use-litellm" disabled> <span class="muted">LiteLLM</span>
                 </label>
                 <button class="ops-btn sm secondary" onclick="llmClearChat()">Clear</button>
               </div>
