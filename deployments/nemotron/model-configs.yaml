@@ -69,12 +69,12 @@ models:
     distributed: true
     min_gpus: 2
 
-  # Llama 3.1 70B Instruct - Large model requiring distribution
-  llama3.1-70b:
-    name: "llama3.1-70b"
-    display_name: "Llama-3.1-70B-Instruct"
-    huggingface_id: "meta-llama/Llama-3.1-70B-Instruct"
-    description: "Meta's Llama 3.1 70B instruction-tuned model"
+  # Llama 3.3 70B Instruct - Large model requiring distribution
+  llama3.3-70b:
+    name: "llama3.3-70b"
+    display_name: "Llama-3.3-70B-Instruct"
+    huggingface_id: "meta-llama/Llama-3.3-70B-Instruct"
+    description: "Meta's Llama 3.3 70B instruction-tuned model"
     requires_trust_remote_code: false
     size_gb: 140
     vllm_args:
