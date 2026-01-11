@@ -1167,6 +1167,12 @@ def nemotron_deploy_distributed():
         trust_flag = "'--trust-remote-code'," if trust_remote else ""
         eager_flag = "'--enforce-eager'" if enforce_eager else ""
         
+        # Get model-specific environment variables
+        model_env_vars = model_config.get("env_vars", {})
+        extra_env_lines = "\n".join([f'      {k}: "{v}"' for k, v in model_env_vars.items()])
+        if extra_env_lines:
+            extra_env_lines = "\n" + extra_env_lines  # Add leading newline
+        
         job_yaml = f'''# RayJob to start vLLM server on the Ray cluster
 # Auto-generated for model: {model_display}
 # Model: {hf_id}
@@ -1239,7 +1245,7 @@ spec:
       NCCL_DEBUG: "WARN"
       NCCL_P2P_DISABLE: "1"
       GLOO_SOCKET_IFNAME: "enP7s7,enp1s0f1np1"
-      NCCL_NET: "Socket"
+      NCCL_NET: "Socket"{extra_env_lines}
   submitterPodTemplate:
     spec:
       containers:

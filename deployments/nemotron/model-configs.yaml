@@ -89,6 +89,7 @@ models:
     min_gpus: 2
 
   # DeepSeek Coder V2 Lite - Code-focused model
+  # NOTE: DeepSeek V2 uses MLA (Multi-Latent Attention) which requires V0 engine
   deepseek-coder-v2:
     name: "deepseek-coder-v2"
     display_name: "DeepSeek-Coder-V2-Lite-Instruct"
@@ -103,7 +104,8 @@ models:
       max_model_len: 8192
       gpu_memory_utilization: 0.80
       enforce_eager: true
-    env_vars: {}
+    env_vars:
+      VLLM_USE_V1: "0"  # Required for MLA attention support on GB10
     distributed: false
     min_gpus: 1
 
