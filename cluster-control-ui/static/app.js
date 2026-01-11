@@ -649,7 +649,6 @@ class LLMManager extends DeploymentManager {
     this.addMessage('user', message);
     inputEl.value = '';
     
-    const useLiteLLM = document.getElementById('llm-use-litellm')?.checked ?? false;
     const maxTokens = parseInt(document.getElementById('llm-max-tokens')?.value) || 1024;
     const temperature = parseFloat(document.getElementById('llm-temperature')?.value) || 0.7;
     const useStream = document.getElementById('llm-stream')?.checked ?? true;
@@ -669,7 +668,6 @@ class LLMManager extends DeploymentManager {
           messages: this.chatHistory,
           max_tokens: maxTokens,
           temperature,
-          use_litellm: useLiteLLM,
         }, (chunk) => {
           const lines = chunk.split('\n');
           for (const line of lines) {
@@ -700,7 +698,6 @@ class LLMManager extends DeploymentManager {
           messages: this.chatHistory,
           max_tokens: maxTokens,
           temperature,
-          use_litellm: useLiteLLM,
         });
         
         if (data.success) {

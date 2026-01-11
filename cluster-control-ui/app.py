@@ -872,9 +872,6 @@ NEMOTRON_DEPLOYMENT_DIR = Path(os.environ.get(
 # vLLM service endpoints
 VLLM_DISTRIBUTED_IP = os.environ.get("VLLM_DISTRIBUTED_IP", "192.168.86.203")
 VLLM_DISTRIBUTED_PORT = os.environ.get("VLLM_DISTRIBUTED_PORT", "8081")
-LITELLM_IP = os.environ.get("LITELLM_IP", "192.168.86.204")
-LITELLM_PORT = os.environ.get("LITELLM_PORT", "4000")
-LITELLM_API_KEY = os.environ.get("LITELLM_API_KEY", "sk-litellm-master-1234")
 
 # Model configuration
 MODEL_CONFIG_FILE = NEMOTRON_DEPLOYMENT_DIR / "model-configs.yaml"
@@ -936,10 +933,8 @@ def _get_nemotron_status() -> Dict[str, object]:
         "pods": [],
         "services": [],
         "vllm_health": None,
-        "litellm_health": None,
         "endpoints": {
             "vllm": f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}",
-            "litellm": f"http://{LITELLM_IP}:{LITELLM_PORT}",
             "ray_dashboard": f"http://{VLLM_DISTRIBUTED_IP}:8265",
         },
     }
@@ -1058,22 +1053,6 @@ def _get_nemotron_status() -> Dict[str, object]:
         status["vllm_health"] = {"healthy": False, "error": "Connection refused"}
     except Exception as e:
         status["vllm_health"] = {"healthy": False, "error": str(e)}
-    
-    # Check LiteLLM health
-    try:
-        req = urllib.request.Request(
-            f"http://{LITELLM_IP}:{LITELLM_PORT}/health/readiness",
-            method="GET"
-        )
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            status["litellm_health"] = {
-                "healthy": resp.status == 200,
-                "status_code": resp.status,
-            }
-    except urllib.error.URLError:
-        status["litellm_health"] = {"healthy": False, "error": "Connection refused"}
-    except Exception as e:
-        status["litellm_health"] = {"healthy": False, "error": str(e)}
     
     return status
 
@@ -1400,11 +1379,11 @@ def nemotron_delete():
     ])
     results.append({"step": "delete_single", "success": ok, "output": output})
     
-    # Note: Keep namespace, PVC, secrets, and LiteLLM intact
+    # Note: Keep namespace, PVC, and secrets intact
     
     return jsonify({
         "success": all(r["success"] for r in results),
-        "message": "Nemotron deployment deleted. Namespace, PVC, secrets, and LiteLLM retained.",
+        "message": "Nemotron deployment deleted. Namespace, PVC, and secrets retained.",
         "results": results,
     })
 
@@ -1553,8 +1532,8 @@ def nemotron_restart():
 
 @app.route("/nemotron/health", methods=["GET"])
 def nemotron_health():
-    """Check vLLM and LiteLLM health endpoints."""
-    health = {"vllm": None, "litellm": None, "models": None}
+    """Check vLLM health endpoint."""
+    health = {"vllm": None, "models": None}
     
     # Check vLLM health
     try:
@@ -1572,23 +1551,6 @@ def nemotron_health():
         health["vllm"] = {"healthy": False, "error": str(e.reason)}
     except Exception as e:
         health["vllm"] = {"healthy": False, "error": str(e)}
-    
-    # Check LiteLLM health
-    try:
-        req = urllib.request.Request(
-            f"http://{LITELLM_IP}:{LITELLM_PORT}/health/readiness",
-            method="GET"
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            health["litellm"] = {
-                "healthy": resp.status == 200,
-                "status_code": resp.status,
-                "endpoint": f"http://{LITELLM_IP}:{LITELLM_PORT}",
-            }
-    except urllib.error.URLError as e:
-        health["litellm"] = {"healthy": False, "error": str(e.reason)}
-    except Exception as e:
-        health["litellm"] = {"healthy": False, "error": str(e)}
     
     # Get available models from vLLM
     if health["vllm"] and health["vllm"].get("healthy"):
@@ -1650,17 +1612,8 @@ def deployment_history():
     })
 
 
-@app.route("/nemotron/litellm/restart", methods=["POST"])
-def nemotron_litellm_restart():
-    """Restart LiteLLM proxy deployment."""
-    ok, output = _run_kubectl_action([
-        "rollout", "restart", "deployment", "litellm-proxy", "-n", NEMOTRON_NAMESPACE
-    ])
-    return jsonify({"success": ok, "message": output})
-
-
 # --------------------------------------------------------------------------
-# LLM Chat API (via LiteLLM proxy or direct vLLM)
+# LLM Chat API (direct vLLM)
 # --------------------------------------------------------------------------
 
 # Chat history database
@@ -1727,17 +1680,15 @@ def _get_current_vllm_model() -> str:
 
 @app.route("/llm/chat", methods=["POST"])
 def llm_chat():
-    """Send a chat completion request via LiteLLM proxy or direct vLLM."""
+    """Send a chat completion request via vLLM."""
     import time
     start_time = time.time()
     
     data = request.get_json() or {}
     
     messages = data.get("messages", [])
-    model = data.get("model", "nemotron")  # LiteLLM model alias
     max_tokens = data.get("max_tokens", 1024)
     temperature = data.get("temperature", 0.7)
-    use_litellm = data.get("use_litellm", True)
     session_id = data.get("session_id", "default")
     
     if not messages:
@@ -1747,14 +1698,9 @@ def llm_chat():
     user_msg = messages[-1].get("content", "") if messages else ""
     _record_chat_message(session_id, "user", user_msg)
     
-    # Choose endpoint and model
-    if use_litellm:
-        url = f"http://{LITELLM_IP}:{LITELLM_PORT}/v1/chat/completions"
-        actual_model = model  # LiteLLM uses alias
-    else:
-        url = f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/v1/chat/completions"
-        # Get actual model name from vLLM for direct calls
-        actual_model = _get_current_vllm_model() or model
+    # Use vLLM direct endpoint
+    url = f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/v1/chat/completions"
+    actual_model = _get_current_vllm_model() or "default"
     
     payload = {
         "model": actual_model,
@@ -1764,8 +1710,6 @@ def llm_chat():
     }
     
     headers = {"Content-Type": "application/json"}
-    if use_litellm:
-        headers["Authorization"] = f"Bearer {LITELLM_API_KEY}"
     
     try:
         req = urllib.request.Request(
@@ -1814,10 +1758,8 @@ def llm_chat_stream():
     data = request.get_json() or {}
     
     messages = data.get("messages", [])
-    model = data.get("model", "nemotron")
     max_tokens = data.get("max_tokens", 1024)
     temperature = data.get("temperature", 0.7)
-    use_litellm = data.get("use_litellm", True)
     session_id = data.get("session_id", "default")
     
     if not messages:
@@ -1829,14 +1771,9 @@ def llm_chat_stream():
     user_msg = messages[-1].get("content", "") if messages else ""
     _record_chat_message(session_id, "user", user_msg)
     
-    # Choose endpoint and model
-    if use_litellm:
-        url = f"http://{LITELLM_IP}:{LITELLM_PORT}/v1/chat/completions"
-        actual_model = model  # LiteLLM uses alias
-    else:
-        url = f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/v1/chat/completions"
-        # Get actual model name from vLLM for direct calls
-        actual_model = _get_current_vllm_model() or model
+    # Use vLLM direct endpoint
+    url = f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/v1/chat/completions"
+    actual_model = _get_current_vllm_model() or "default"
     
     payload = {
         "model": actual_model,
@@ -1847,8 +1784,6 @@ def llm_chat_stream():
     }
     
     headers = {"Content-Type": "application/json"}
-    if use_litellm:
-        headers["Authorization"] = f"Bearer {LITELLM_API_KEY}"
     
     # Track accumulated response for history
     accumulated_content = []
@@ -1902,20 +1837,10 @@ def llm_chat_stream():
 
 @app.route("/llm/models/available", methods=["GET"])
 def llm_models_available():
-    """Get models available in LiteLLM."""
-    result = {"litellm": [], "vllm": []}
+    """Get models available in vLLM."""
+    result = {"vllm": []}
     
-    # Try LiteLLM
-    try:
-        req = urllib.request.Request(f"http://{LITELLM_IP}:{LITELLM_PORT}/v1/models")
-        req.add_header("Authorization", f"Bearer {LITELLM_API_KEY}")
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode())
-            result["litellm"] = [m.get("id") for m in data.get("data", [])]
-    except Exception:
-        pass
-    
-    # Try vLLM direct
+    # Get vLLM models
     try:
         req = urllib.request.Request(f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/v1/models")
         with urllib.request.urlopen(req, timeout=5) as response:
