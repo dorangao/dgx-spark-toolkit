@@ -228,7 +228,8 @@ metadata:
   name: comfyui
   namespace: apps
 spec:
-  type: ClusterIP
+  type: LoadBalancer
+  loadBalancerIP: 192.168.86.206
   selector:
     app: comfyui
   ports:
@@ -268,6 +269,7 @@ spec:
           volumeMounts:
             - name: comfyui-storage
               mountPath: /models
+              subPath: models
       volumes:
         - name: comfyui-storage
           persistentVolumeClaim:
@@ -279,7 +281,8 @@ metadata:
   name: comfyui-model-manager
   namespace: apps
 spec:
-  type: ClusterIP
+  type: LoadBalancer
+  loadBalancerIP: 192.168.86.207
   selector:
     app: comfyui-model-manager
   ports:

@@ -2718,7 +2718,7 @@ MANAGED_APPS = {
         "namespace": APPS_NAMESPACE,
         "deployment": "comfyui",
         "service": "comfyui",
-        "external_ip": None,  # ClusterIP only
+        "external_ip": "192.168.86.206",
         "port": 8188,
         "health_endpoint": "/",
     },
@@ -2729,7 +2729,7 @@ MANAGED_APPS = {
         "namespace": APPS_NAMESPACE,
         "deployment": "comfyui-model-manager",
         "service": "comfyui-model-manager",
-        "external_ip": None,
+        "external_ip": "192.168.86.207",
         "port": 5000,
         "health_endpoint": "/",
     },
