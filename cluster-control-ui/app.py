@@ -1663,9 +1663,74 @@ def nemotron_litellm_restart():
 # LLM Chat API (via LiteLLM proxy or direct vLLM)
 # --------------------------------------------------------------------------
 
+# Chat history database
+CHAT_HISTORY_DB_PATH = DATA_DIR / "chat_history.db"
+
+def _init_chat_history_db():
+    """Initialize chat history SQLite database."""
+    conn = sqlite3.connect(str(CHAT_HISTORY_DB_PATH))
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            model_name TEXT,
+            model_display TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            model_used TEXT,
+            tokens_prompt INTEGER,
+            tokens_completion INTEGER,
+            response_time_ms INTEGER
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages(session_id)")
+    conn.commit()
+    conn.close()
+
+def _record_chat_message(session_id: str, role: str, content: str, model_used: str = None,
+                         tokens_prompt: int = None, tokens_completion: int = None, response_time_ms: int = None):
+    """Record a chat message to history."""
+    _init_chat_history_db()
+    conn = sqlite3.connect(str(CHAT_HISTORY_DB_PATH))
+    cursor = conn.cursor()
+    cursor.execute(
+        """INSERT INTO chat_messages 
+           (session_id, timestamp, role, content, model_used, tokens_prompt, tokens_completion, response_time_ms) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (session_id, datetime.utcnow().isoformat(), role, content, model_used, tokens_prompt, tokens_completion, response_time_ms)
+    )
+    conn.commit()
+    conn.close()
+
+def _get_current_vllm_model() -> str:
+    """Get the current model loaded in vLLM."""
+    try:
+        req = urllib.request.Request(f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/v1/models")
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            models = data.get("data", [])
+            if models:
+                return models[0].get("id", "")
+    except Exception:
+        pass
+    return ""
+
+
 @app.route("/llm/chat", methods=["POST"])
 def llm_chat():
-    """Send a chat completion request via LiteLLM proxy."""
+    """Send a chat completion request via LiteLLM proxy or direct vLLM."""
+    import time
+    start_time = time.time()
+    
     data = request.get_json() or {}
     
     messages = data.get("messages", [])
@@ -1673,18 +1738,26 @@ def llm_chat():
     max_tokens = data.get("max_tokens", 1024)
     temperature = data.get("temperature", 0.7)
     use_litellm = data.get("use_litellm", True)
+    session_id = data.get("session_id", "default")
     
     if not messages:
         return jsonify({"success": False, "error": "No messages provided"})
     
-    # Choose endpoint
+    # Record user message
+    user_msg = messages[-1].get("content", "") if messages else ""
+    _record_chat_message(session_id, "user", user_msg)
+    
+    # Choose endpoint and model
     if use_litellm:
         url = f"http://{LITELLM_IP}:{LITELLM_PORT}/v1/chat/completions"
+        actual_model = model  # LiteLLM uses alias
     else:
         url = f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/v1/chat/completions"
+        # Get actual model name from vLLM for direct calls
+        actual_model = _get_current_vllm_model() or model
     
     payload = {
-        "model": model,
+        "model": actual_model,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -1705,11 +1778,23 @@ def llm_chat():
             result = json.loads(response.read().decode())
             content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
             usage = result.get("usage", {})
+            response_time_ms = int((time.time() - start_time) * 1000)
+            
+            # Record assistant response
+            _record_chat_message(
+                session_id, "assistant", content, 
+                model_used=result.get("model", actual_model),
+                tokens_prompt=usage.get("prompt_tokens"),
+                tokens_completion=usage.get("completion_tokens"),
+                response_time_ms=response_time_ms
+            )
+            
             return jsonify({
                 "success": True,
                 "content": content,
                 "usage": usage,
-                "model": result.get("model", model),
+                "model": result.get("model", actual_model),
+                "response_time_ms": response_time_ms,
             })
     except urllib.error.HTTPError as e:
         error_body = e.read().decode() if e.fp else str(e)
@@ -1723,6 +1808,9 @@ def llm_chat():
 @app.route("/llm/chat/stream", methods=["POST"])
 def llm_chat_stream():
     """Stream chat completion response via SSE."""
+    import time
+    start_time = time.time()
+    
     data = request.get_json() or {}
     
     messages = data.get("messages", [])
@@ -1730,20 +1818,28 @@ def llm_chat_stream():
     max_tokens = data.get("max_tokens", 1024)
     temperature = data.get("temperature", 0.7)
     use_litellm = data.get("use_litellm", True)
+    session_id = data.get("session_id", "default")
     
     if not messages:
         def error_gen():
             yield f"data: {json.dumps({'error': 'No messages provided'})}\n\n"
         return Response(error_gen(), mimetype="text/event-stream")
     
-    # Choose endpoint
+    # Record user message
+    user_msg = messages[-1].get("content", "") if messages else ""
+    _record_chat_message(session_id, "user", user_msg)
+    
+    # Choose endpoint and model
     if use_litellm:
         url = f"http://{LITELLM_IP}:{LITELLM_PORT}/v1/chat/completions"
+        actual_model = model  # LiteLLM uses alias
     else:
         url = f"http://{VLLM_DISTRIBUTED_IP}:{VLLM_DISTRIBUTED_PORT}/v1/chat/completions"
+        # Get actual model name from vLLM for direct calls
+        actual_model = _get_current_vllm_model() or model
     
     payload = {
-        "model": model,
+        "model": actual_model,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -1754,7 +1850,11 @@ def llm_chat_stream():
     if use_litellm:
         headers["Authorization"] = f"Bearer {LITELLM_API_KEY}"
     
+    # Track accumulated response for history
+    accumulated_content = []
+    
     def generate():
+        nonlocal accumulated_content
         try:
             req = urllib.request.Request(
                 url,
@@ -1767,7 +1867,24 @@ def llm_chat_stream():
                     line = line.decode().strip()
                     if line.startswith("data: "):
                         yield f"{line}\n\n"
+                        # Extract content for history
+                        if line != "data: [DONE]":
+                            try:
+                                chunk_data = json.loads(line[6:])
+                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
+                                if "content" in delta:
+                                    accumulated_content.append(delta["content"])
+                            except:
+                                pass
                         if line == "data: [DONE]":
+                            # Record full response to history
+                            response_time_ms = int((time.time() - start_time) * 1000)
+                            full_content = "".join(accumulated_content)
+                            _record_chat_message(
+                                session_id, "assistant", full_content,
+                                model_used=actual_model,
+                                response_time_ms=response_time_ms
+                            )
                             break
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
@@ -1808,6 +1925,109 @@ def llm_models_available():
         pass
     
     return jsonify(result)
+
+
+@app.route("/llm/chat/history", methods=["GET"])
+def llm_chat_history():
+    """Get chat history from SQLite."""
+    _init_chat_history_db()
+    session_id = request.args.get("session_id")
+    limit = int(request.args.get("limit", 100))
+    
+    conn = sqlite3.connect(str(CHAT_HISTORY_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    if session_id:
+        cursor.execute(
+            "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?",
+            (session_id, limit)
+        )
+    else:
+        cursor.execute(
+            "SELECT * FROM chat_messages ORDER BY timestamp DESC LIMIT ?",
+            (limit,)
+        )
+    
+    history = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    
+    return jsonify({"success": True, "history": history[::-1]})  # Reverse to chronological
+
+
+@app.route("/llm/chat/sessions", methods=["GET"])
+def llm_chat_sessions():
+    """Get unique chat sessions."""
+    _init_chat_history_db()
+    
+    conn = sqlite3.connect(str(CHAT_HISTORY_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT session_id, 
+               MIN(timestamp) as first_message,
+               MAX(timestamp) as last_message,
+               COUNT(*) as message_count,
+               MAX(model_used) as model_used
+        FROM chat_messages 
+        GROUP BY session_id 
+        ORDER BY last_message DESC
+        LIMIT 50
+    """)
+    sessions = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    
+    return jsonify({"success": True, "sessions": sessions})
+
+
+@app.route("/llm/chat/stats", methods=["GET"])
+def llm_chat_stats():
+    """Get chat statistics."""
+    _init_chat_history_db()
+    
+    conn = sqlite3.connect(str(CHAT_HISTORY_DB_PATH))
+    cursor = conn.cursor()
+    
+    # Total messages
+    cursor.execute("SELECT COUNT(*) FROM chat_messages")
+    total_messages = cursor.fetchone()[0]
+    
+    # Total sessions
+    cursor.execute("SELECT COUNT(DISTINCT session_id) FROM chat_messages")
+    total_sessions = cursor.fetchone()[0]
+    
+    # Average response time
+    cursor.execute("SELECT AVG(response_time_ms) FROM chat_messages WHERE response_time_ms IS NOT NULL")
+    avg_response_time = cursor.fetchone()[0] or 0
+    
+    # Total tokens
+    cursor.execute("SELECT SUM(tokens_prompt), SUM(tokens_completion) FROM chat_messages")
+    row = cursor.fetchone()
+    total_prompt_tokens = row[0] or 0
+    total_completion_tokens = row[1] or 0
+    
+    # Messages by model
+    cursor.execute("""
+        SELECT model_used, COUNT(*) as count 
+        FROM chat_messages 
+        WHERE model_used IS NOT NULL 
+        GROUP BY model_used
+    """)
+    messages_by_model = {row[0]: row[1] for row in cursor.fetchall()}
+    
+    conn.close()
+    
+    return jsonify({
+        "success": True,
+        "stats": {
+            "total_messages": total_messages,
+            "total_sessions": total_sessions,
+            "avg_response_time_ms": round(avg_response_time, 2),
+            "total_prompt_tokens": total_prompt_tokens,
+            "total_completion_tokens": total_completion_tokens,
+            "messages_by_model": messages_by_model,
+        }
+    })
 
 
 # --------------------------------------------------------------------------
