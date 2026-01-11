@@ -27,6 +27,99 @@ import time as _time
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+DATA_DIR = Path(os.environ.get("CLUSTER_UI_DATA_DIR", "/nfs/imagegen"))  # Shared storage
+DEPLOYMENT_HISTORY_DB = DATA_DIR / "deployment_history.db"
+
+
+def _init_deployment_history_db():
+    """Initialize the deployment history database."""
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(DEPLOYMENT_HISTORY_DB), timeout=5)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS deployments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                deployment_type TEXT NOT NULL,  -- 'llm' or 'imagegen'
+                action TEXT NOT NULL,           -- 'deploy', 'delete', 'scale', 'start', 'stop'
+                model_name TEXT,
+                model_display TEXT,
+                model_hf_id TEXT,
+                status TEXT NOT NULL,           -- 'success' or 'failed'
+                message TEXT,
+                details TEXT,                   -- JSON with extra details
+                user TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_deployments_timestamp ON deployments(timestamp DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_deployments_type ON deployments(deployment_type)")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Warning: Could not initialize deployment history DB: {e}")
+
+
+def _record_deployment(
+    deployment_type: str,
+    action: str,
+    model_name: str = None,
+    model_display: str = None,
+    model_hf_id: str = None,
+    status: str = "success",
+    message: str = None,
+    details: dict = None
+):
+    """Record a deployment action to history."""
+    try:
+        conn = sqlite3.connect(str(DEPLOYMENT_HISTORY_DB), timeout=5)
+        conn.execute("""
+            INSERT INTO deployments 
+            (timestamp, deployment_type, action, model_name, model_display, model_hf_id, status, message, details, user)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            datetime.utcnow().isoformat(),
+            deployment_type,
+            action,
+            model_name,
+            model_display,
+            model_hf_id,
+            status,
+            message,
+            json.dumps(details) if details else None,
+            os.environ.get("USER", "unknown")
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Warning: Could not record deployment: {e}")
+
+
+def _get_deployment_history(deployment_type: str = None, limit: int = 50) -> List[Dict]:
+    """Get deployment history."""
+    try:
+        conn = sqlite3.connect(str(DEPLOYMENT_HISTORY_DB), timeout=5)
+        conn.row_factory = sqlite3.Row
+        
+        if deployment_type:
+            rows = conn.execute(
+                "SELECT * FROM deployments WHERE deployment_type = ? ORDER BY timestamp DESC LIMIT ?",
+                (deployment_type, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM deployments ORDER BY timestamp DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+        
+        conn.close()
+        return [dict(row) for row in rows]
+    except Exception:
+        return []
+
+
+# Initialize deployment history DB on startup
+_init_deployment_history_db()
+
 app = Flask(
     __name__,
     template_folder=str(BASE_DIR / "templates"),
@@ -773,8 +866,8 @@ def host_metrics_stream():
 NEMOTRON_NAMESPACE = "llm-inference"
 NEMOTRON_DEPLOYMENT_DIR = Path(os.environ.get(
     "NEMOTRON_DEPLOYMENT_DIR",
-    "~/dgx-spark-toolkit/deployments/nemotron"
-)).expanduser()
+    "/home/doran/dgx-spark-toolkit/deployments/nemotron"
+))
 
 # vLLM service endpoints
 VLLM_DISTRIBUTED_IP = os.environ.get("VLLM_DISTRIBUTED_IP", "192.168.86.203")
@@ -1054,13 +1147,13 @@ def nemotron_deploy_distributed():
         ])
         results.append({"step": "delete_single", "success": ok, "output": output})
     
-    # Step 2: Delete existing RayJob if switching models
-    if status["mode"] == "distributed" and current_model and current_model != model_name:
-        ok, output = _run_kubectl_action([
-            "delete", "rayjob", "vllm-serve", "-n", NEMOTRON_NAMESPACE,
-            "--ignore-not-found"
-        ])
-        results.append({"step": "delete_old_job", "success": ok, "output": output})
+    # Step 2: ALWAYS delete existing RayJob to ensure fresh deployment with new model
+    # RayJob is immutable - must delete and recreate to change the model
+    ok, output = _run_kubectl_action([
+        "delete", "rayjob", "vllm-serve", "-n", NEMOTRON_NAMESPACE,
+        "--ignore-not-found", "--wait=true", "--timeout=60s"
+    ])
+    results.append({"step": "delete_old_job", "success": ok, "output": output})
     
     # Step 3: Apply RayCluster
     raycluster_file = NEMOTRON_DEPLOYMENT_DIR / "raycluster-vllm.yaml"
@@ -1211,8 +1304,22 @@ spec:
         ok, output = _run_kubectl_action(["apply", "-f", str(service_file)], timeout=30)
         results.append({"step": "apply_service", "success": ok, "output": output})
     
+    success = all(r["success"] for r in results)
+    
+    # Record deployment to history
+    _record_deployment(
+        deployment_type="llm",
+        action="deploy",
+        model_name=model_name,
+        model_display=model_display,
+        model_hf_id=model_config.get("huggingface_id"),
+        status="success" if success else "failed",
+        message=f"Deploying {model_display}",
+        details={"results": results}
+    )
+    
     return jsonify({
-        "success": all(r["success"] for r in results),
+        "success": success,
         "message": f"Deploying {model_display}. Ray cluster will start shortly.",
         "model": model_name,
         "model_display": model_display,
@@ -1524,6 +1631,21 @@ def nemotron_logs():
         "pod": pod_name,
         "logs": logs if ok else "",
         "error": logs if not ok else None,
+    })
+
+
+@app.route("/deployment/history", methods=["GET"])
+def deployment_history():
+    """Get deployment history for all or specific deployment types."""
+    deployment_type = request.args.get("type")  # 'llm', 'imagegen', or None for all
+    limit = int(request.args.get("limit", 50))
+    
+    history = _get_deployment_history(deployment_type, limit)
+    
+    return jsonify({
+        "success": True,
+        "history": history,
+        "count": len(history),
     })
 
 
