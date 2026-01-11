@@ -5,6 +5,26 @@
 # Use the 'name' field to specify which model to deploy
 
 models:
+  # Microsoft Phi-4 - State-of-the-art 14B model with strong reasoning
+  # https://huggingface.co/microsoft/phi-4
+  phi-4:
+    name: "phi-4"
+    display_name: "Phi-4 (14B)"
+    huggingface_id: "microsoft/phi-4"
+    description: "Microsoft's state-of-the-art 14B model - strong math, code, and reasoning"
+    requires_trust_remote_code: true
+    size_gb: 28
+    vllm_args:
+      dtype: "bfloat16"
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 1
+      max_model_len: 16384
+      gpu_memory_utilization: 0.85
+      enforce_eager: false
+    env_vars: {}
+    distributed: false
+    min_gpus: 1
+
   # NVIDIA Nemotron-3 Nano 30B - Default model
   nemotron-nano-30b:
     name: "nemotron-nano-30b"
