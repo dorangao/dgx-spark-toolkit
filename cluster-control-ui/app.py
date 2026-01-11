@@ -1170,7 +1170,8 @@ def nemotron_deploy_distributed():
     
     # Step 4: Generate vLLM serve job for the selected model
     # ALWAYS regenerate to ensure correct model is used
-    servejob_file = NEMOTRON_DEPLOYMENT_DIR / "vllm-serve-job-generated.yaml"
+    # Write to DATA_DIR (NFS) since systemd ProtectSystem=strict makes /home read-only
+    servejob_file = DATA_DIR / "vllm-serve-job-generated.yaml"
     
     # Generate the job YAML with model-specific configuration
     try:
