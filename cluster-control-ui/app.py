@@ -1173,6 +1173,9 @@ def nemotron_deploy_distributed():
         if extra_env_lines:
             extra_env_lines = "\n" + extra_env_lines  # Add leading newline
         
+        # Format env vars as Python dict for entrypoint script
+        model_env_dict = ", ".join([f'"{k}": "{v}"' for k, v in model_env_vars.items()])
+        
         job_yaml = f'''# RayJob to start vLLM server on the Ray cluster
 # Auto-generated for model: {model_display}
 # Model: {hf_id}
@@ -1198,6 +1201,7 @@ spec:
     import subprocess
     import sys
     import time
+    import os
     
     ray.init(address='auto')
     
@@ -1215,6 +1219,12 @@ spec:
     else:
         print('Timeout waiting for cluster')
         sys.exit(1)
+    
+    # Set model-specific environment variables
+    model_env = {{{model_env_dict}}}
+    for k, v in model_env.items():
+        os.environ[k] = v
+        print(f'Set env: {{k}}={{v}}')
     
     cmd = [
         'vllm', 'serve', '{hf_id}',
