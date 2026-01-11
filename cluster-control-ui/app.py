@@ -355,7 +355,7 @@ CLUSTER_STATUS_NAMESPACES = [
     ns.strip()
     for ns in os.environ.get(
         "CLUSTER_STATUS_NAMESPACES",
-        "default,llm-inference,image-gen,kubernetes-dashboard,longhorn-system,metallb-system,kube-system,gpu-operator,network-operator,ray-system,ingress-nginx"
+        "apps,default,llm-inference,image-gen,kubernetes-dashboard,longhorn-system,metallb-system,kube-system,gpu-operator,network-operator,ray-system,ingress-nginx"
     ).split(",")
     if ns.strip()
 ]
@@ -2679,6 +2679,423 @@ def imagegen_proxy_image_metadata(gen_id: str):
         return jsonify({"success": True, "metadata": metadata, "source": "direct"})
     
     return jsonify({"success": False, "error": "Metadata not found"})
+
+
+# --------------------------------------------------------------------------
+# Apps Management (ComfyUI, Ollama, OpenWebUI)
+# --------------------------------------------------------------------------
+
+# Apps configuration - deployments in the 'apps' namespace
+APPS_NAMESPACE = "apps"
+
+MANAGED_APPS = {
+    "ollama": {
+        "display_name": "Ollama",
+        "description": "Local LLM inference server",
+        "icon": "🦙",
+        "namespace": APPS_NAMESPACE,
+        "deployment": "ollama",
+        "service": "ollama",
+        "external_ip": "192.168.86.201",
+        "port": 11434,
+        "health_endpoint": "/api/tags",
+    },
+    "openwebui": {
+        "display_name": "Open WebUI",
+        "description": "Chat interface for Ollama",
+        "icon": "💬",
+        "namespace": APPS_NAMESPACE,
+        "deployment": "openwebui",
+        "service": "openwebui",
+        "external_ip": "192.168.86.200",
+        "port": 8080,
+        "health_endpoint": "/",
+    },
+    "comfyui": {
+        "display_name": "ComfyUI",
+        "description": "Node-based image generation",
+        "icon": "🎨",
+        "namespace": APPS_NAMESPACE,
+        "deployment": "comfyui",
+        "service": "comfyui",
+        "external_ip": None,  # ClusterIP only
+        "port": 8188,
+        "health_endpoint": "/",
+    },
+    "comfyui-model-manager": {
+        "display_name": "ComfyUI Model Manager",
+        "description": "Model download manager for ComfyUI",
+        "icon": "📦",
+        "namespace": APPS_NAMESPACE,
+        "deployment": "comfyui-model-manager",
+        "service": "comfyui-model-manager",
+        "external_ip": None,
+        "port": 5000,
+        "health_endpoint": "/",
+    },
+}
+
+
+def _get_app_deployment_status(app_name: str) -> dict:
+    """Get deployment status for a specific app."""
+    if app_name not in MANAGED_APPS:
+        return {"error": f"Unknown app: {app_name}"}
+    
+    app_config = MANAGED_APPS[app_name]
+    ns = app_config["namespace"]
+    deployment = app_config["deployment"]
+    
+    try:
+        result = subprocess.run(
+            ["kubectl", "get", "deployment", deployment, "-n", ns, "-o", "json"],
+            capture_output=True, text=True, timeout=10
+        )
+        
+        if result.returncode != 0:
+            return {
+                "name": app_name,
+                "deployed": False,
+                "error": result.stderr.strip() if result.stderr else "Deployment not found"
+            }
+        
+        data = json.loads(result.stdout)
+        spec = data.get("spec", {})
+        status = data.get("status", {})
+        
+        replicas = spec.get("replicas", 0)
+        ready_replicas = status.get("readyReplicas", 0)
+        available_replicas = status.get("availableReplicas", 0)
+        
+        return {
+            "name": app_name,
+            "deployed": True,
+            "replicas": replicas,
+            "ready_replicas": ready_replicas,
+            "available_replicas": available_replicas,
+            "running": ready_replicas > 0 and ready_replicas >= replicas,
+            "stopped": replicas == 0,
+        }
+    except Exception as e:
+        return {"name": app_name, "deployed": False, "error": str(e)}
+
+
+def _get_app_service_status(app_name: str) -> dict:
+    """Get service status for a specific app."""
+    if app_name not in MANAGED_APPS:
+        return {}
+    
+    app_config = MANAGED_APPS[app_name]
+    ns = app_config["namespace"]
+    service = app_config["service"]
+    
+    try:
+        result = subprocess.run(
+            ["kubectl", "get", "service", service, "-n", ns, "-o", "json"],
+            capture_output=True, text=True, timeout=10
+        )
+        
+        if result.returncode != 0:
+            return {"service_exists": False}
+        
+        data = json.loads(result.stdout)
+        spec = data.get("spec", {})
+        status = data.get("status", {})
+        
+        service_type = spec.get("type", "ClusterIP")
+        cluster_ip = spec.get("clusterIP", "")
+        
+        external_ip = None
+        if service_type == "LoadBalancer":
+            ingress = status.get("loadBalancer", {}).get("ingress", [])
+            if ingress:
+                external_ip = ingress[0].get("ip")
+        
+        return {
+            "service_exists": True,
+            "service_type": service_type,
+            "cluster_ip": cluster_ip,
+            "external_ip": external_ip,
+        }
+    except Exception:
+        return {"service_exists": False}
+
+
+def _check_app_health(app_name: str) -> dict:
+    """Check if app is healthy via HTTP endpoint."""
+    if app_name not in MANAGED_APPS:
+        return {"healthy": False}
+    
+    app_config = MANAGED_APPS[app_name]
+    
+    # Determine endpoint to check
+    external_ip = app_config.get("external_ip")
+    port = app_config.get("port", 80)
+    health_path = app_config.get("health_endpoint", "/")
+    
+    if not external_ip:
+        # Try ClusterIP if no external
+        svc_status = _get_app_service_status(app_name)
+        cluster_ip = svc_status.get("cluster_ip")
+        if not cluster_ip or cluster_ip == "None":
+            return {"healthy": False, "reason": "No endpoint available"}
+        url = f"http://{cluster_ip}:{port}{health_path}"
+    else:
+        url = f"http://{external_ip}:{port}{health_path}"
+    
+    try:
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return {"healthy": response.status < 400, "status_code": response.status}
+    except Exception as e:
+        return {"healthy": False, "error": str(e)}
+
+
+@app.route("/apps/status", methods=["GET"])
+def apps_status():
+    """Get status of all managed apps."""
+    apps = {}
+    
+    for app_name, app_config in MANAGED_APPS.items():
+        deployment_status = _get_app_deployment_status(app_name)
+        service_status = _get_app_service_status(app_name)
+        
+        # Only check health if deployment is running
+        health = {"healthy": False}
+        if deployment_status.get("running"):
+            health = _check_app_health(app_name)
+        
+        apps[app_name] = {
+            **app_config,
+            **deployment_status,
+            **service_status,
+            **health,
+        }
+    
+    return jsonify({
+        "success": True,
+        "apps": apps,
+        "collected": datetime.utcnow().isoformat()
+    })
+
+
+@app.route("/apps/<app_name>/status", methods=["GET"])
+def app_single_status(app_name: str):
+    """Get status of a single app."""
+    if app_name not in MANAGED_APPS:
+        return jsonify({"success": False, "error": f"Unknown app: {app_name}"}), 404
+    
+    app_config = MANAGED_APPS[app_name]
+    deployment_status = _get_app_deployment_status(app_name)
+    service_status = _get_app_service_status(app_name)
+    health = _check_app_health(app_name) if deployment_status.get("running") else {"healthy": False}
+    
+    return jsonify({
+        "success": True,
+        "app": {
+            **app_config,
+            **deployment_status,
+            **service_status,
+            **health,
+        }
+    })
+
+
+@app.route("/apps/<app_name>/scale", methods=["POST"])
+def app_scale(app_name: str):
+    """Scale an app deployment."""
+    if app_name not in MANAGED_APPS:
+        return jsonify({"success": False, "error": f"Unknown app: {app_name}"}), 404
+    
+    data = request.get_json() or {}
+    replicas = data.get("replicas", 1)
+    
+    app_config = MANAGED_APPS[app_name]
+    ns = app_config["namespace"]
+    deployment = app_config["deployment"]
+    
+    try:
+        result = subprocess.run(
+            ["kubectl", "scale", "deployment", deployment, "-n", ns, f"--replicas={replicas}"],
+            capture_output=True, text=True, timeout=30
+        )
+        
+        success = result.returncode == 0
+        return jsonify({
+            "success": success,
+            "message": f"Scaled {app_name} to {replicas} replica(s)" if success else result.stderr,
+            "replicas": replicas
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/apps/<app_name>/start", methods=["POST"])
+def app_start(app_name: str):
+    """Start an app (scale to 1)."""
+    if app_name not in MANAGED_APPS:
+        return jsonify({"success": False, "error": f"Unknown app: {app_name}"}), 404
+    
+    app_config = MANAGED_APPS[app_name]
+    ns = app_config["namespace"]
+    deployment = app_config["deployment"]
+    
+    try:
+        result = subprocess.run(
+            ["kubectl", "scale", "deployment", deployment, "-n", ns, "--replicas=1"],
+            capture_output=True, text=True, timeout=30
+        )
+        
+        success = result.returncode == 0
+        return jsonify({
+            "success": success,
+            "message": f"Started {app_name}" if success else result.stderr,
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/apps/<app_name>/stop", methods=["POST"])
+def app_stop(app_name: str):
+    """Stop an app (scale to 0)."""
+    if app_name not in MANAGED_APPS:
+        return jsonify({"success": False, "error": f"Unknown app: {app_name}"}), 404
+    
+    app_config = MANAGED_APPS[app_name]
+    ns = app_config["namespace"]
+    deployment = app_config["deployment"]
+    
+    try:
+        result = subprocess.run(
+            ["kubectl", "scale", "deployment", deployment, "-n", ns, "--replicas=0"],
+            capture_output=True, text=True, timeout=30
+        )
+        
+        success = result.returncode == 0
+        return jsonify({
+            "success": success,
+            "message": f"Stopped {app_name}" if success else result.stderr,
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/apps/<app_name>/restart", methods=["POST"])
+def app_restart(app_name: str):
+    """Restart an app deployment."""
+    if app_name not in MANAGED_APPS:
+        return jsonify({"success": False, "error": f"Unknown app: {app_name}"}), 404
+    
+    app_config = MANAGED_APPS[app_name]
+    ns = app_config["namespace"]
+    deployment = app_config["deployment"]
+    
+    try:
+        result = subprocess.run(
+            ["kubectl", "rollout", "restart", "deployment", deployment, "-n", ns],
+            capture_output=True, text=True, timeout=30
+        )
+        
+        success = result.returncode == 0
+        return jsonify({
+            "success": success,
+            "message": f"Restarted {app_name}" if success else result.stderr,
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/apps/<app_name>/logs", methods=["GET"])
+def app_logs(app_name: str):
+    """Get logs for an app."""
+    if app_name not in MANAGED_APPS:
+        return jsonify({"success": False, "error": f"Unknown app: {app_name}"}), 404
+    
+    app_config = MANAGED_APPS[app_name]
+    ns = app_config["namespace"]
+    deployment = app_config["deployment"]
+    
+    tail = request.args.get("tail", "100")
+    
+    try:
+        # Get logs from the deployment's pods
+        result = subprocess.run(
+            ["kubectl", "logs", f"deployment/{deployment}", "-n", ns, f"--tail={tail}"],
+            capture_output=True, text=True, timeout=30
+        )
+        
+        return jsonify({
+            "success": result.returncode == 0,
+            "logs": result.stdout if result.returncode == 0 else result.stderr,
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/apps/<app_name>/deploy", methods=["POST"])
+def app_deploy(app_name: str):
+    """Deploy an app from the apps-namespace.yaml manifest."""
+    if app_name not in MANAGED_APPS:
+        return jsonify({"success": False, "error": f"Unknown app: {app_name}"}), 404
+    
+    # Path to the apps manifest
+    manifest_path = Path.home() / "dgx-spark-toolkit" / "deployments" / "apps-namespace.yaml"
+    
+    if not manifest_path.exists():
+        return jsonify({"success": False, "error": f"Manifest not found: {manifest_path}"})
+    
+    try:
+        # Apply the full manifest (kubectl will only update what's needed)
+        result = subprocess.run(
+            ["kubectl", "apply", "-f", str(manifest_path)],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        success = result.returncode == 0
+        return jsonify({
+            "success": success,
+            "message": f"Deployed {app_name}" if success else result.stderr,
+            "output": result.stdout if success else result.stderr,
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/apps/<app_name>/delete", methods=["POST"])
+def app_delete(app_name: str):
+    """Delete an app deployment (keeps PVC for data)."""
+    if app_name not in MANAGED_APPS:
+        return jsonify({"success": False, "error": f"Unknown app: {app_name}"}), 404
+    
+    app_config = MANAGED_APPS[app_name]
+    ns = app_config["namespace"]
+    deployment = app_config["deployment"]
+    service = app_config["service"]
+    
+    results = []
+    
+    try:
+        # Delete deployment
+        result = subprocess.run(
+            ["kubectl", "delete", "deployment", deployment, "-n", ns, "--ignore-not-found"],
+            capture_output=True, text=True, timeout=30
+        )
+        results.append({"resource": "deployment", "success": result.returncode == 0, "output": result.stdout or result.stderr})
+        
+        # Delete service
+        result = subprocess.run(
+            ["kubectl", "delete", "service", service, "-n", ns, "--ignore-not-found"],
+            capture_output=True, text=True, timeout=30
+        )
+        results.append({"resource": "service", "success": result.returncode == 0, "output": result.stdout or result.stderr})
+        
+        all_success = all(r["success"] for r in results)
+        return jsonify({
+            "success": all_success,
+            "message": f"Deleted {app_name} deployment and service" if all_success else "Some resources failed to delete",
+            "results": results,
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 
 # --------------------------------------------------------------------------

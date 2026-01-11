@@ -1,0 +1,288 @@
+# Apps Namespace - ComfyUI, Ollama, OpenWebUI
+# This file deploys all apps into the dedicated 'apps' namespace
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apps
+  labels:
+    name: apps
+---
+# =============================================================================
+# Persistent Volume Claims
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-pvc
+  namespace: apps
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 200Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openwebui-data
+  namespace: apps
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: comfyui-pvc
+  namespace: apps
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 100Gi
+---
+# =============================================================================
+# Ollama - Local LLM Inference Server
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: apps
+  labels:
+    app: ollama
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: spark-2959
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+            requests:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: ollama-storage
+              mountPath: /root/.ollama
+      volumes:
+        - name: ollama-storage
+          persistentVolumeClaim:
+            claimName: ollama-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: apps
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 192.168.86.201
+  selector:
+    app: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+---
+# =============================================================================
+# Open WebUI - Chat Interface for Ollama
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openwebui
+  namespace: apps
+  labels:
+    app: openwebui
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: openwebui
+  template:
+    metadata:
+      labels:
+        app: openwebui
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: spark-ba63
+      containers:
+        - name: openwebui
+          image: ghcr.io/open-webui/open-webui:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: OLLAMA_BASE_URL
+              value: http://ollama.apps.svc.cluster.local:11434
+          volumeMounts:
+            - name: data
+              mountPath: /app/backend/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: openwebui-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openwebui
+  namespace: apps
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 192.168.86.200
+  selector:
+    app: openwebui
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# =============================================================================
+# ComfyUI - Node-based Image Generation
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: comfyui
+  namespace: apps
+  labels:
+    app: comfyui
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: comfyui
+  template:
+    metadata:
+      labels:
+        app: comfyui
+    spec:
+      runtimeClassName: nvidia
+      initContainers:
+        - name: comfyui-init
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - mkdir -p /storage/models /storage/custom_nodes /storage/input /storage/output
+          volumeMounts:
+            - name: comfyui-storage
+              mountPath: /storage
+      containers:
+        - name: comfyui
+          image: comfyui:arm64
+          imagePullPolicy: IfNotPresent
+          workingDir: /workspace/ComfyUI
+          ports:
+            - containerPort: 8188
+          env:
+            - name: CLI_ARGS
+              value: "--listen 0.0.0.0 --port 8188"
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+            requests:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: comfyui-storage
+              mountPath: /workspace/ComfyUI/models
+              subPath: models
+            - name: comfyui-storage
+              mountPath: /workspace/ComfyUI/custom_nodes
+              subPath: custom_nodes
+            - name: comfyui-storage
+              mountPath: /workspace/ComfyUI/input
+              subPath: input
+            - name: comfyui-storage
+              mountPath: /workspace/ComfyUI/output
+              subPath: output
+      volumes:
+        - name: comfyui-storage
+          persistentVolumeClaim:
+            claimName: comfyui-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: comfyui
+  namespace: apps
+spec:
+  type: ClusterIP
+  selector:
+    app: comfyui
+  ports:
+    - name: http
+      port: 8188
+      targetPort: 8188
+---
+# =============================================================================
+# ComfyUI Model Manager
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: comfyui-model-manager
+  namespace: apps
+  labels:
+    app: comfyui-model-manager
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: comfyui-model-manager
+  template:
+    metadata:
+      labels:
+        app: comfyui-model-manager
+    spec:
+      containers:
+        - name: model-manager
+          image: comfyui-model-manager:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: COMFY_MODELS_DIR
+              value: /models
+          volumeMounts:
+            - name: comfyui-storage
+              mountPath: /models
+      volumes:
+        - name: comfyui-storage
+          persistentVolumeClaim:
+            claimName: comfyui-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: comfyui-model-manager
+  namespace: apps
+spec:
+  type: ClusterIP
+  selector:
+    app: comfyui-model-manager
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 8080

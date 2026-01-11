@@ -1162,3 +1162,338 @@ code {
 .image-modal-close:hover {
   background: rgba(255,255,255,0.3);
 }
+
+/* --------------------------------------------------------------------------
+   Terminal Interface
+   -------------------------------------------------------------------------- */
+.terminal-container {
+  background: #1a1b26;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.terminal-output {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #a9b1d6;
+  padding: var(--space-md);
+  min-height: 300px;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.terminal-output::-webkit-scrollbar { width: 8px; }
+.terminal-output::-webkit-scrollbar-track { background: #1a1b26; }
+.terminal-output::-webkit-scrollbar-thumb { background: #414868; border-radius: 4px; }
+
+.terminal-output .cmd-line {
+  color: #7aa2f7;
+  margin-top: var(--space-sm);
+}
+
+.terminal-output .cmd-output {
+  color: #c0caf5;
+}
+
+.terminal-output .cmd-error {
+  color: #f7768e;
+}
+
+.terminal-output .cmd-success {
+  color: #9ece6a;
+}
+
+.terminal-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: #24283b;
+  border-top: 1px solid #414868;
+}
+
+.terminal-prompt {
+  color: #7aa2f7;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.terminal-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #c0caf5;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  padding: var(--space-sm);
+  outline: none;
+}
+
+.terminal-input::placeholder {
+  color: #565f89;
+}
+
+.terminal-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  background: #1f2335;
+  border-top: 1px solid #414868;
+}
+
+.terminal-shortcuts .ops-btn.sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.7rem;
+  background: #414868;
+  color: #a9b1d6;
+  border: 1px solid #565f89;
+}
+
+.terminal-shortcuts .ops-btn.sm:hover {
+  background: #565f89;
+  color: #c0caf5;
+}
+
+/* --------------------------------------------------------------------------
+   Apps Management Grid
+   -------------------------------------------------------------------------- */
+.apps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-lg);
+}
+
+.app-card {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.app-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.app-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: linear-gradient(135deg, var(--panel-muted) 0%, var(--panel-bg) 100%);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-icon {
+  font-size: 2rem;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+}
+
+.app-title-section {
+  flex: 1;
+}
+
+.app-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text);
+}
+
+.app-description {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0.25rem 0 0;
+}
+
+.app-status-badge {
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.app-status-badge.running {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--success-dark);
+}
+
+.app-status-badge.stopped {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-muted);
+}
+
+.app-status-badge.starting {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+}
+
+.app-status-badge.error {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+}
+
+.app-card-body {
+  padding: var(--space-md) var(--space-lg);
+}
+
+.app-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.app-info-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-info-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.app-info-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.app-info-value code {
+  font-size: 0.8rem;
+  background: var(--panel-muted);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+.app-endpoint {
+  margin: var(--space-md) 0;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--panel-muted);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-endpoint a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.app-endpoint a:hover {
+  text-decoration: underline;
+}
+
+.app-card-actions {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--panel-muted);
+  border-top: 1px solid var(--border);
+}
+
+.app-card-actions .ops-btn {
+  flex: 1;
+  justify-content: center;
+}
+
+.app-health-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 0.8rem;
+}
+
+.app-health-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.app-health-dot.healthy {
+  background: var(--success);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+}
+
+.app-health-dot.unhealthy {
+  background: var(--danger);
+}
+
+/* Not deployed state */
+.app-card.not-deployed {
+  opacity: 0.7;
+}
+
+.app-card.not-deployed .app-card-header {
+  background: var(--panel-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Namespace Filter Toggles
+   -------------------------------------------------------------------------- */
+.namespace-filter {
+  padding: var(--space-md);
+  background: var(--panel-muted);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.ns-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.ns-toggle input[type="checkbox"] {
+  display: none;
+}
+
+.ns-toggle.visible {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ns-toggle.hidden {
+  background: var(--panel-muted);
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.ns-toggle:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.ns-toggle span {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

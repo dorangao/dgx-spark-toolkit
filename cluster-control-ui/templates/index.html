@@ -24,9 +24,41 @@
     <section class="tabbed-panel card" style="margin-top: 1rem;">
       <div class="tab-bar">
         <button class="tab-btn active" data-tab-target="cluster">⚙️ Ops Center</button>
+        <button class="tab-btn" data-tab-target="apps">🛠️ Apps</button>
         <button class="tab-btn" data-tab-target="llm">🤖 LLM</button>
         <button class="tab-btn" data-tab-target="imagegen">🎨 Image Gen</button>
         {% if status_hosts %}<button class="tab-btn" data-tab-target="utilization">📊 Monitoring</button>{% endif %}
+      </div>
+
+      <!-- Apps Tab -->
+      <div class="tab-content" id="tab-apps">
+        <div class="panel-card">
+          <div class="panel-head">
+            <h3>🛠️ Application Management</h3>
+            <div class="flex-row gap-sm">
+              <button class="ops-btn sm secondary" onclick="appsRefreshStatus()">🔄 Refresh</button>
+            </div>
+          </div>
+          <p class="muted mt-sm">Manage ComfyUI, Ollama, and OpenWebUI deployments in the <code>apps</code> namespace.</p>
+          
+          <div id="apps-container" class="apps-grid mt-lg">
+            <div class="empty-state">
+              <p>Loading apps status...</p>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Apps Logs Panel -->
+        <div class="panel-card mt-md" id="apps-logs-panel" style="display:none;">
+          <div class="panel-head">
+            <h3>📋 <span id="apps-logs-title">App Logs</span></h3>
+            <div class="flex-row gap-sm">
+              <button class="ops-btn sm secondary" onclick="appsRefreshLogs()">🔄 Refresh</button>
+              <button class="ops-btn sm secondary" onclick="hideAppsLogs()">✕ Close</button>
+            </div>
+          </div>
+          <pre id="apps-logs-content" class="logs-container" style="max-height:400px;">Select an app to view logs...</pre>
+        </div>
       </div>
 
       <!-- LLM Tab -->
@@ -365,7 +397,7 @@
         </div>
 
         <!-- Cluster Status -->
-        <div class="panel-card">
+        <div class="panel-card mt-md">
           <div class="status-header">
             <div>
               <h3 style="margin:0;">Kubernetes Cluster Status</h3>
@@ -378,11 +410,36 @@
               </label>
             </div>
           </div>
+          
+          <!-- Namespace Visibility Filter -->
+          <div class="namespace-filter mt-md" id="namespace-filter-container">
+            <div class="flex-row gap-sm" style="flex-wrap:wrap;align-items:center;">
+              <span class="muted" style="font-size:0.85rem;margin-right:0.5rem;">Show namespaces:</span>
+              <div id="namespace-toggles" class="flex-row gap-sm" style="flex-wrap:wrap;">
+                <!-- Populated dynamically -->
+              </div>
+              <button class="ops-btn sm secondary" onclick="ClusterUI.toggleAllNamespaces(true)" style="margin-left:auto;">Show All</button>
+              <button class="ops-btn sm secondary" onclick="ClusterUI.toggleAllNamespaces(false)">Hide All</button>
+            </div>
+          </div>
+          
           <div id="cluster-status-container">
             <div class="empty-state">
               <p>Loading cluster status...</p>
             </div>
           </div>
+        </div>
+
+        <!-- Apps Logs Panel (for Ops Center) -->
+        <div class="panel-card mt-md" id="apps-logs-panel" style="display:none;">
+          <div class="panel-head">
+            <h3>📋 <span id="apps-logs-title">Logs</span></h3>
+            <div class="flex-row gap-sm">
+              <button class="ops-btn sm secondary" onclick="appsRefreshLogs()">🔄 Refresh</button>
+              <button class="ops-btn sm secondary" onclick="hideAppsLogs()">✕ Close</button>
+            </div>
+          </div>
+          <pre id="apps-logs-content" class="logs-container mt-md" style="max-height:400px;">No logs available.</pre>
         </div>
 
         <!-- Live Output -->
@@ -444,6 +501,39 @@
       </div>
       <div class="modal-footer">
         <button class="ops-btn secondary" onclick="hidePodLogsModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pod-terminal-modal" class="modal-overlay" onclick="if(event.target===this) hidePodTerminalModal()">
+    <div class="modal-content modal-wide">
+      <div class="modal-header">
+        <h3>💻 <span id="pod-terminal-title">Pod Terminal</span></h3>
+        <button class="modal-close" onclick="hidePodTerminalModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="terminal-container">
+          <div id="terminal-output" class="terminal-output">Welcome to pod terminal. Type commands below.</div>
+          <div class="terminal-input-row">
+            <span class="terminal-prompt">$</span>
+            <input type="text" id="terminal-input" class="terminal-input" 
+                   placeholder="Enter command..." autocomplete="off"
+                   onkeydown="if(event.key==='Enter'){execTerminalCommand();event.preventDefault();}">
+            <button class="ops-btn primary sm" onclick="execTerminalCommand()">Run</button>
+          </div>
+          <div class="terminal-shortcuts">
+            <button class="ops-btn sm secondary" onclick="runQuickCmd('ps aux')">ps aux</button>
+            <button class="ops-btn sm secondary" onclick="runQuickCmd('df -h')">df -h</button>
+            <button class="ops-btn sm secondary" onclick="runQuickCmd('nvidia-smi')">nvidia-smi</button>
+            <button class="ops-btn sm secondary" onclick="runQuickCmd('top -b -n 1 | head -20')">top</button>
+            <button class="ops-btn sm secondary" onclick="runQuickCmd('cat /proc/meminfo | head -10')">meminfo</button>
+            <button class="ops-btn sm secondary" onclick="runQuickCmd('env | sort')">env</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="ops-btn secondary" onclick="clearTerminal()">Clear</button>
+        <button class="ops-btn secondary" onclick="hidePodTerminalModal()">Close</button>
       </div>
     </div>
   </div>

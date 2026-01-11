@@ -71,29 +71,58 @@ const Modal = {
 };
 
 // ============================================================================
-// Tab Navigation
+// Tab Navigation (with URL hash support for bookmarking)
 // ============================================================================
 const Tabs = {
   buttons: null,
   contents: null,
   callbacks: {},
+  validTabs: new Set(),
 
   init() {
     this.buttons = document.querySelectorAll('[data-tab-target]');
     this.contents = document.querySelectorAll('.tab-content');
     
+    // Build set of valid tab names
     this.buttons.forEach(btn => {
-      btn.addEventListener('click', () => this.activate(btn.dataset.tabTarget));
+      this.validTabs.add(btn.dataset.tabTarget);
+      btn.addEventListener('click', () => this.activate(btn.dataset.tabTarget, true));
     });
+    
+    // Listen for browser back/forward
+    window.addEventListener('popstate', () => this.activateFromHash(false));
+    
+    // Activate tab from URL hash on load
+    this.activateFromHash(false);
   },
 
-  activate(target) {
+  // Get tab name from URL hash
+  getTabFromHash() {
+    const hash = window.location.hash.slice(1); // Remove '#'
+    return this.validTabs.has(hash) ? hash : null;
+  },
+
+  // Activate tab based on URL hash
+  activateFromHash(updateHistory = false) {
+    const tab = this.getTabFromHash();
+    if (tab) {
+      this.activate(tab, updateHistory);
+    }
+  },
+
+  activate(target, updateHistory = true) {
     this.buttons.forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tabTarget === target);
     });
     this.contents.forEach(panel => {
       panel.classList.toggle('active', panel.id === `tab-${target}`);
     });
+    
+    // Update URL hash for bookmarking (without triggering popstate)
+    if (updateHistory && window.location.hash !== `#${target}`) {
+      history.pushState(null, '', `#${target}`);
+    }
+    
     // Fire callback if registered
     if (this.callbacks[target]) {
       this.callbacks[target]();
@@ -1162,6 +1191,67 @@ class ClusterStatusManager {
   constructor(containerId) {
     this.container = document.getElementById(containerId);
     this.stream = null;
+    this.allNamespaces = [];
+    this.hiddenNamespaces = this.loadHiddenNamespaces();
+  }
+
+  loadHiddenNamespaces() {
+    try {
+      const stored = localStorage.getItem('hiddenNamespaces');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  saveHiddenNamespaces() {
+    try {
+      localStorage.setItem('hiddenNamespaces', JSON.stringify(this.hiddenNamespaces));
+    } catch {}
+  }
+
+  toggleNamespaceVisibility(ns) {
+    const idx = this.hiddenNamespaces.indexOf(ns);
+    if (idx >= 0) {
+      this.hiddenNamespaces.splice(idx, 1);
+    } else {
+      this.hiddenNamespaces.push(ns);
+    }
+    this.saveHiddenNamespaces();
+    this.updateNamespaceToggles();
+    // Re-render namespaces
+    const nsSection = this.container?.querySelector('.namespace-section');
+    if (nsSection && this.lastData) {
+      this.renderNamespacesSection(nsSection, this.lastData.namespaces || {});
+    }
+  }
+
+  toggleAllNamespaces(show) {
+    if (show) {
+      this.hiddenNamespaces = [];
+    } else {
+      this.hiddenNamespaces = [...this.allNamespaces];
+    }
+    this.saveHiddenNamespaces();
+    this.updateNamespaceToggles();
+    const nsSection = this.container?.querySelector('.namespace-section');
+    if (nsSection && this.lastData) {
+      this.renderNamespacesSection(nsSection, this.lastData.namespaces || {});
+    }
+  }
+
+  updateNamespaceToggles() {
+    const container = document.getElementById('namespace-toggles');
+    if (!container) return;
+    
+    container.innerHTML = this.allNamespaces.map(ns => {
+      const isHidden = this.hiddenNamespaces.includes(ns);
+      return `<label class="ns-toggle ${isHidden ? 'hidden' : 'visible'}">
+        <input type="checkbox" ${!isHidden ? 'checked' : ''} 
+               onchange="clusterStatusManager.toggleNamespaceVisibility('${ns}')">
+        <span>${ns}</span>
+      </label>`;
+    }).join('');
   }
 
   start() {
@@ -1194,6 +1284,7 @@ class ClusterStatusManager {
 
   render(data) {
     if (!this.container) return;
+    this.lastData = data;
     
     if (!data.ok) {
       this.container.innerHTML = `
@@ -1209,6 +1300,13 @@ class ClusterStatusManager {
     const summary = data.summary || {};
     const nodes = data.nodes || [];
     const namespaces = data.namespaces || {};
+    
+    // Update namespace list for toggles
+    const nsKeys = Object.keys(namespaces).sort();
+    if (JSON.stringify(nsKeys) !== JSON.stringify(this.allNamespaces)) {
+      this.allNamespaces = nsKeys;
+      this.updateNamespaceToggles();
+    }
     
     let html = `
       <div class="api-status healthy">
@@ -1234,17 +1332,39 @@ class ClusterStatusManager {
       </div>
     `;
     
-    // Namespaces
-    const nsKeys = Object.keys(namespaces);
+    // Namespaces section
     if (nsKeys.length) {
       html += '<div class="namespace-section"><h4 style="margin:0 0 0.75rem;color:#334155;">Workloads by Namespace</h4>';
       nsKeys.forEach(ns => {
-        html += this.renderNamespace(ns, namespaces[ns]);
+        if (!this.hiddenNamespaces.includes(ns)) {
+          html += this.renderNamespace(ns, namespaces[ns]);
+        }
       });
+      if (this.hiddenNamespaces.length > 0 && this.hiddenNamespaces.length < nsKeys.length) {
+        html += `<p class="muted" style="font-size:0.85rem;margin-top:0.5rem;">${this.hiddenNamespaces.length} namespace(s) hidden</p>`;
+      } else if (this.hiddenNamespaces.length === nsKeys.length) {
+        html += '<p class="muted" style="font-size:0.85rem;margin-top:0.5rem;">All namespaces hidden. Click "Show All" to display.</p>';
+      }
       html += '</div>';
     }
     
     this.container.innerHTML = html;
+  }
+
+  renderNamespacesSection(container, namespaces) {
+    const nsKeys = Object.keys(namespaces).sort();
+    let html = '<h4 style="margin:0 0 0.75rem;color:#334155;">Workloads by Namespace</h4>';
+    nsKeys.forEach(ns => {
+      if (!this.hiddenNamespaces.includes(ns)) {
+        html += this.renderNamespace(ns, namespaces[ns]);
+      }
+    });
+    if (this.hiddenNamespaces.length > 0 && this.hiddenNamespaces.length < nsKeys.length) {
+      html += `<p class="muted" style="font-size:0.85rem;margin-top:0.5rem;">${this.hiddenNamespaces.length} namespace(s) hidden</p>`;
+    } else if (this.hiddenNamespaces.length === nsKeys.length) {
+      html += '<p class="muted" style="font-size:0.85rem;margin-top:0.5rem;">All namespaces hidden. Click "Show All" to display.</p>';
+    }
+    container.innerHTML = html;
   }
 
   renderNodeCard(node) {
@@ -1293,14 +1413,16 @@ class ClusterStatusManager {
       html += '<table class="resource-table"><tr><th>Pod</th><th>Status</th><th>Ready</th><th>Restarts</th><th></th></tr>';
       nsData.pods.forEach(pod => {
         const statusClass = pod.phase.toLowerCase() === 'running' ? 'running' : pod.phase.toLowerCase() === 'pending' ? 'pending' : 'failed';
+        const isRunning = pod.phase.toLowerCase() === 'running';
         html += `<tr>
           <td>${pod.name.substring(0, 35)}${pod.name.length > 35 ? '...' : ''}</td>
           <td><span class="status-dot ${statusClass}"></span>${pod.phase}</td>
           <td>${pod.ready ? '✓' : '✗'}</td>
           <td>${pod.restarts}</td>
           <td>
-            <button class="ops-btn sm secondary" onclick="ClusterUI.showPodLogs('${ns}','${pod.name}')" style="padding:0.2rem 0.4rem;">📋</button>
-            <button class="ops-btn sm danger" onclick="ClusterUI.deletePod('${ns}','${pod.name}')" style="padding:0.2rem 0.4rem;">✕</button>
+            <button class="ops-btn sm secondary" onclick="ClusterUI.showPodTerminal('${ns}','${pod.name}')" style="padding:0.2rem 0.4rem;" title="Terminal" ${!isRunning ? 'disabled' : ''}>💻</button>
+            <button class="ops-btn sm secondary" onclick="ClusterUI.showPodLogs('${ns}','${pod.name}')" style="padding:0.2rem 0.4rem;" title="Logs">📋</button>
+            <button class="ops-btn sm danger" onclick="ClusterUI.deletePod('${ns}','${pod.name}')" style="padding:0.2rem 0.4rem;" title="Delete">✕</button>
           </td>
         </tr>`;
       });
@@ -1372,6 +1494,12 @@ const ClusterUI = {
     if (content) content.classList.toggle('hidden');
   },
 
+  toggleAllNamespaces(show) {
+    if (typeof clusterStatusManager !== 'undefined') {
+      clusterStatusManager.toggleAllNamespaces(show);
+    }
+  },
+
   async restartDeployment(namespace, name) {
     Toast.info(`Restarting ${name}...`);
     const data = await API.post(`/deployment/${namespace}/${name}/restart`);
@@ -1402,6 +1530,131 @@ const ClusterUI = {
       content.scrollTop = content.scrollHeight;
     } catch (err) {
       content.textContent = `Error: ${err}`;
+    }
+  },
+
+  // Terminal state
+  terminalState: {
+    namespace: '',
+    pod: '',
+    container: '',
+    history: [],
+    historyIndex: -1,
+  },
+
+  async showPodTerminal(namespace, name) {
+    const modal = document.getElementById('pod-terminal-modal');
+    const title = document.getElementById('pod-terminal-title');
+    const output = document.getElementById('terminal-output');
+    const input = document.getElementById('terminal-input');
+    
+    if (!modal) return;
+    
+    // Store current pod info
+    this.terminalState.namespace = namespace;
+    this.terminalState.pod = name;
+    this.terminalState.container = '';
+    this.terminalState.history = [];
+    this.terminalState.historyIndex = -1;
+    
+    title.textContent = `Terminal: ${name}`;
+    output.innerHTML = `<span class="cmd-success">Connected to pod: ${name}</span>\n<span class="cmd-output">Namespace: ${namespace}</span>\n\n<span style="color:#565f89;">Type commands below or use quick shortcuts.</span>\n`;
+    input.value = '';
+    
+    modal.classList.add('show');
+    
+    // Focus the input
+    setTimeout(() => input.focus(), 100);
+    
+    // Try to get container list for multi-container pods
+    try {
+      const data = await API.get(`/pod/${namespace}/${name}/containers`);
+      if (data.success && data.containers && data.containers.length > 1) {
+        output.innerHTML += `\n<span style="color:#bb9af7;">Containers available: ${data.containers.join(', ')}</span>\n`;
+        // Use first container by default
+        this.terminalState.container = data.containers[0];
+      } else if (data.containers && data.containers.length === 1) {
+        this.terminalState.container = data.containers[0];
+      }
+    } catch (err) {
+      // Ignore - container detection is best effort
+    }
+  },
+
+  async execInPod(command) {
+    if (!command.trim()) return;
+    
+    const { namespace, pod, container } = this.terminalState;
+    const output = document.getElementById('terminal-output');
+    const input = document.getElementById('terminal-input');
+    
+    if (!namespace || !pod) {
+      Toast.error('No pod selected');
+      return;
+    }
+    
+    // Add to history
+    this.terminalState.history.unshift(command);
+    if (this.terminalState.history.length > 50) {
+      this.terminalState.history.pop();
+    }
+    this.terminalState.historyIndex = -1;
+    
+    // Display command
+    output.innerHTML += `\n<span class="cmd-line">$ ${escapeHtml(command)}</span>\n`;
+    input.value = '';
+    input.disabled = true;
+    
+    try {
+      const data = await API.post(`/pod/${namespace}/${pod}/exec`, {
+        command,
+        container,
+      });
+      
+      if (data.success) {
+        if (data.stdout) {
+          output.innerHTML += `<span class="cmd-output">${escapeHtml(data.stdout)}</span>`;
+        }
+        if (data.stderr) {
+          output.innerHTML += `<span class="cmd-error">${escapeHtml(data.stderr)}</span>`;
+        }
+        if (data.exit_code !== 0) {
+          output.innerHTML += `\n<span class="cmd-error">Exit code: ${data.exit_code}</span>`;
+        }
+      } else {
+        output.innerHTML += `<span class="cmd-error">Error: ${data.error}</span>`;
+      }
+    } catch (err) {
+      output.innerHTML += `<span class="cmd-error">Error: ${err}</span>`;
+    }
+    
+    input.disabled = false;
+    input.focus();
+    output.scrollTop = output.scrollHeight;
+  },
+
+  clearTerminal() {
+    const output = document.getElementById('terminal-output');
+    const { namespace, pod } = this.terminalState;
+    if (output) {
+      output.innerHTML = `<span class="cmd-success">Connected to pod: ${pod}</span>\n<span class="cmd-output">Namespace: ${namespace}</span>\n\n<span style="color:#565f89;">Type commands below or use quick shortcuts.</span>\n`;
+    }
+  },
+
+  navigateHistory(direction) {
+    const input = document.getElementById('terminal-input');
+    const { history, historyIndex } = this.terminalState;
+    
+    if (history.length === 0) return;
+    
+    if (direction === 'up') {
+      const newIndex = Math.min(historyIndex + 1, history.length - 1);
+      this.terminalState.historyIndex = newIndex;
+      input.value = history[newIndex];
+    } else if (direction === 'down') {
+      const newIndex = Math.max(historyIndex - 1, -1);
+      this.terminalState.historyIndex = newIndex;
+      input.value = newIndex >= 0 ? history[newIndex] : '';
     }
   },
 
@@ -1589,10 +1842,45 @@ window.confirmAction = (action, message) => {
 // Modal functions
 window.hideModal = () => Modal.hide('confirm-modal');
 window.hidePodLogsModal = () => Modal.hide('pod-logs-modal');
+window.hidePodTerminalModal = () => Modal.hide('pod-terminal-modal');
 window.hideOpsOutput = () => {
   const panel = document.getElementById('ops-output-panel');
   if (panel) panel.style.display = 'none';
 };
+
+// Terminal functions
+window.execTerminalCommand = () => {
+  const input = document.getElementById('terminal-input');
+  if (input && input.value.trim()) {
+    ClusterUI.execInPod(input.value);
+  }
+};
+
+window.runQuickCmd = (cmd) => {
+  const input = document.getElementById('terminal-input');
+  if (input) {
+    input.value = cmd;
+    ClusterUI.execInPod(cmd);
+  }
+};
+
+window.clearTerminal = () => ClusterUI.clearTerminal();
+
+// Terminal input keyboard handler for history navigation
+document.addEventListener('DOMContentLoaded', () => {
+  const terminalInput = document.getElementById('terminal-input');
+  if (terminalInput) {
+    terminalInput.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        ClusterUI.navigateHistory('up');
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        ClusterUI.navigateHistory('down');
+      }
+    });
+  }
+});
 
 // ============================================================================
 // Image Generation History & Gallery
@@ -1807,3 +2095,221 @@ Tabs.onActivate('imagegen', () => {
   imagegenLoadHistory();
   imagegenLoadGallery();
 });
+
+// ============================================================================
+// Apps Management (ComfyUI, Ollama, OpenWebUI)
+// ============================================================================
+
+let currentAppsLogsApp = null;
+
+async function appsRefreshStatus() {
+  const container = document.getElementById('apps-container');
+  if (!container) return;
+  
+  container.innerHTML = '<div class="empty-state"><p>Loading apps status...</p></div>';
+  
+  try {
+    const data = await API.get('/apps/status');
+    
+    if (!data.success) {
+      container.innerHTML = `<div class="empty-state"><p class="error">Error: ${data.error || 'Failed to load apps'}</p></div>`;
+      return;
+    }
+    
+    const apps = data.apps;
+    if (!apps || Object.keys(apps).length === 0) {
+      container.innerHTML = '<div class="empty-state"><p>No managed apps configured.</p></div>';
+      return;
+    }
+    
+    container.innerHTML = Object.entries(apps).map(([key, app]) => renderAppCard(key, app)).join('');
+  } catch (err) {
+    container.innerHTML = `<div class="empty-state"><p class="error">Error: ${err}</p></div>`;
+  }
+}
+
+function renderAppCard(key, app) {
+  const deployed = app.deployed;
+  const running = app.running;
+  const stopped = app.stopped;
+  const healthy = app.healthy;
+  
+  // Determine status
+  let statusClass = 'stopped';
+  let statusText = 'Stopped';
+  if (!deployed) {
+    statusClass = 'error';
+    statusText = 'Not Deployed';
+  } else if (running) {
+    statusClass = healthy ? 'running' : 'starting';
+    statusText = healthy ? 'Running' : 'Starting...';
+  } else if (!stopped && app.replicas > 0) {
+    statusClass = 'starting';
+    statusText = 'Starting...';
+  }
+  
+  // Build endpoint link
+  let endpointHtml = '';
+  if (app.external_ip && app.port) {
+    const url = `http://${app.external_ip}:${app.port}`;
+    endpointHtml = `<div class="app-endpoint">
+      <a href="${url}" target="_blank">${url}</a>
+      <span class="app-health-indicator">
+        <span class="app-health-dot ${healthy ? 'healthy' : 'unhealthy'}"></span>
+        ${healthy ? 'Healthy' : 'Unreachable'}
+      </span>
+    </div>`;
+  } else if (app.cluster_ip && app.cluster_ip !== 'None') {
+    endpointHtml = `<div class="app-endpoint">
+      <code>${app.cluster_ip}:${app.port}</code>
+      <span class="muted">(ClusterIP)</span>
+    </div>`;
+  }
+  
+  return `
+    <div class="app-card ${!deployed ? 'not-deployed' : ''}">
+      <div class="app-card-header">
+        <div class="app-icon">${app.icon || '📦'}</div>
+        <div class="app-title-section">
+          <h4 class="app-title">${app.display_name || key}</h4>
+          <p class="app-description">${app.description || ''}</p>
+        </div>
+        <span class="app-status-badge ${statusClass}">${statusText}</span>
+      </div>
+      <div class="app-card-body">
+        <div class="app-info-grid">
+          <div class="app-info-item">
+            <span class="app-info-label">Replicas</span>
+            <span class="app-info-value">${app.ready_replicas ?? 0}/${app.replicas ?? 0}</span>
+          </div>
+          <div class="app-info-item">
+            <span class="app-info-label">Service Type</span>
+            <span class="app-info-value">${app.service_type || 'N/A'}</span>
+          </div>
+        </div>
+        ${endpointHtml}
+      </div>
+      <div class="app-card-actions">
+        ${deployed ? 
+          (running || (app.replicas > 0 && !stopped)) ? 
+            `<button class="ops-btn warning sm" onclick="appStop('${key}')">⏹ Stop</button>` :
+            `<button class="ops-btn success sm" onclick="appStart('${key}')">▶ Start</button>`
+          : `<button class="ops-btn gpu sm" onclick="appDeploy('${key}')">🚀 Deploy</button>`
+        }
+        <button class="ops-btn secondary sm" onclick="appRestart('${key}')" ${!deployed || stopped ? 'disabled' : ''}>🔄</button>
+        <button class="ops-btn secondary sm" onclick="appShowLogs('${key}')" ${!deployed ? 'disabled' : ''}>📋</button>
+        <button class="ops-btn danger sm" onclick="appDelete('${key}')" ${!deployed ? 'disabled' : ''}>🗑️</button>
+      </div>
+    </div>
+  `;
+}
+
+async function appStart(appName) {
+  Toast.info(`Starting ${appName}...`);
+  try {
+    const data = await API.post(`/apps/${appName}/start`);
+    Toast.show(data.message || (data.success ? 'Started' : 'Failed'), data.success ? 'success' : 'error');
+    setTimeout(appsRefreshStatus, 2000);
+  } catch (err) {
+    Toast.error(`Error: ${err}`);
+  }
+}
+
+async function appStop(appName) {
+  if (!confirm(`Stop ${appName}?`)) return;
+  
+  Toast.info(`Stopping ${appName}...`);
+  try {
+    const data = await API.post(`/apps/${appName}/stop`);
+    Toast.show(data.message || (data.success ? 'Stopped' : 'Failed'), data.success ? 'success' : 'error');
+    setTimeout(appsRefreshStatus, 1000);
+  } catch (err) {
+    Toast.error(`Error: ${err}`);
+  }
+}
+
+async function appRestart(appName) {
+  Toast.info(`Restarting ${appName}...`);
+  try {
+    const data = await API.post(`/apps/${appName}/restart`);
+    Toast.show(data.message || (data.success ? 'Restarting' : 'Failed'), data.success ? 'success' : 'error');
+    setTimeout(appsRefreshStatus, 3000);
+  } catch (err) {
+    Toast.error(`Error: ${err}`);
+  }
+}
+
+async function appDeploy(appName) {
+  if (!confirm(`Deploy ${appName}? This will create the deployment and service.`)) return;
+  
+  Toast.info(`Deploying ${appName}...`);
+  try {
+    const data = await API.post(`/apps/${appName}/deploy`);
+    Toast.show(data.message || (data.success ? 'Deployed' : 'Failed'), data.success ? 'success' : 'error');
+    setTimeout(appsRefreshStatus, 2000);
+  } catch (err) {
+    Toast.error(`Error: ${err}`);
+  }
+}
+
+async function appDelete(appName) {
+  if (!confirm(`Delete ${appName} deployment? This will remove the deployment and service but keep the PVC data.`)) return;
+  
+  Toast.info(`Deleting ${appName}...`);
+  try {
+    const data = await API.post(`/apps/${appName}/delete`);
+    Toast.show(data.message || (data.success ? 'Deleted' : 'Failed'), data.success ? 'success' : 'error');
+    setTimeout(appsRefreshStatus, 1000);
+  } catch (err) {
+    Toast.error(`Error: ${err}`);
+  }
+}
+
+async function appShowLogs(appName) {
+  const panel = document.getElementById('apps-logs-panel');
+  const title = document.getElementById('apps-logs-title');
+  const content = document.getElementById('apps-logs-content');
+  
+  if (!panel || !title || !content) return;
+  
+  currentAppsLogsApp = appName;
+  title.textContent = `Logs: ${appName}`;
+  content.textContent = 'Loading...';
+  panel.style.display = 'block';
+  
+  try {
+    const data = await API.get(`/apps/${appName}/logs?tail=200`);
+    content.textContent = data.success ? (data.logs || 'No logs available.') : `Error: ${data.error}`;
+    content.scrollTop = content.scrollHeight;
+  } catch (err) {
+    content.textContent = `Error: ${err}`;
+  }
+}
+
+function appsRefreshLogs() {
+  if (currentAppsLogsApp) {
+    appShowLogs(currentAppsLogsApp);
+  }
+}
+
+function hideAppsLogs() {
+  const panel = document.getElementById('apps-logs-panel');
+  if (panel) panel.style.display = 'none';
+  currentAppsLogsApp = null;
+}
+
+// Register Apps tab callback
+Tabs.onActivate('apps', () => {
+  appsRefreshStatus();
+});
+
+// Export global functions
+window.appsRefreshStatus = appsRefreshStatus;
+window.appStart = appStart;
+window.appStop = appStop;
+window.appRestart = appRestart;
+window.appDeploy = appDeploy;
+window.appDelete = appDelete;
+window.appShowLogs = appShowLogs;
+window.appsRefreshLogs = appsRefreshLogs;
+window.hideAppsLogs = hideAppsLogs;
