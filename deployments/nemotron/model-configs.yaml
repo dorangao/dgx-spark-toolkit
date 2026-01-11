@@ -7,6 +7,7 @@
 models:
   # Microsoft Phi-4 - State-of-the-art 14B model with strong reasoning
   # https://huggingface.co/microsoft/phi-4
+  # Note: Model uses 27GB, fits on single GB10 GPU (128GB)
   phi-4:
     name: "phi-4"
     display_name: "Phi-4 (14B)"
@@ -18,10 +19,13 @@ models:
       dtype: "bfloat16"
       tensor_parallel_size: 1
       pipeline_parallel_size: 1
-      max_model_len: 4096  # Reduced from 16384 for GB10 memory
+      max_model_len: 4096
       gpu_memory_utilization: 0.85
-      enforce_eager: true  # Enable eager mode for stability
-    env_vars: {}
+      enforce_eager: true
+      disable_frontend_multiprocessing: true  # Avoid V1 multiprocess engine issue
+    env_vars:
+      VLLM_USE_V1: "0"
+      VLLM_WORKER_MULTIPROC_METHOD: "spawn"
     distributed: false
     min_gpus: 1
 

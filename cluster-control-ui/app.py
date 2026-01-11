@@ -1164,10 +1164,13 @@ def nemotron_deploy_distributed():
         enforce_eager = vllm_args.get("enforce_eager", True)
         trust_remote = model_config.get("requires_trust_remote_code", True)
         
+        disable_multiproc = vllm_args.get("disable_frontend_multiprocessing", False)
+        
         trust_flag = "'--trust-remote-code'," if trust_remote else ""
         eager_flag = "'--enforce-eager'" if enforce_eager else ""
         trust_flag_shell = "--trust-remote-code" if trust_remote else ""
         eager_flag_shell = "--enforce-eager" if enforce_eager else ""
+        multiproc_flag_shell = "--disable-frontend-multiprocessing" if disable_multiproc else ""
         
         # Get model-specific environment variables
         model_env_vars = model_config.get("env_vars", {})
@@ -1231,7 +1234,7 @@ spec:
         print(f'Set env: {{k}}={{v}}')
     
     # Use shell=True to ensure env vars are set before vllm loads
-    cmd_str = env_prefix + 'vllm serve {hf_id} --host 0.0.0.0 --port 8081 {trust_flag_shell} --dtype {dtype} --distributed-executor-backend ray --tensor-parallel-size {tp_size} --pipeline-parallel-size {pp_size} --max-model-len {max_model_len} --gpu-memory-utilization {gpu_util} --download-dir /models {eager_flag_shell}'
+    cmd_str = env_prefix + 'vllm serve {hf_id} --host 0.0.0.0 --port 8081 {trust_flag_shell} --dtype {dtype} --distributed-executor-backend ray --tensor-parallel-size {tp_size} --pipeline-parallel-size {pp_size} --max-model-len {max_model_len} --gpu-memory-utilization {gpu_util} --download-dir /models {eager_flag_shell} {multiproc_flag_shell}'
     
     print(f'Running: {{cmd_str}}')
     subprocess.run(cmd_str, shell=True)
