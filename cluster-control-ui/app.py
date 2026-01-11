@@ -1638,15 +1638,18 @@ IMAGEGEN_MODELS = {
 
 
 # Direct access to image generation history (works even when service is down)
+# Data may be on either node (local hostPath), so we check both
 IMAGEGEN_STORAGE_DIR = Path(os.environ.get(
     "IMAGEGEN_STORAGE_DIR", 
     "/data/models/image-gen/generated_images"
 ))
 IMAGEGEN_DB_PATH = IMAGEGEN_STORAGE_DIR / "history.db"
+IMAGEGEN_REMOTE_NODE = os.environ.get("IMAGEGEN_REMOTE_NODE", "spark-ba63")
+IMAGEGEN_REMOTE_PATH = os.environ.get("IMAGEGEN_REMOTE_PATH", "/data/models/image-gen/generated_images")
 
 
 def _imagegen_db_connect() -> Optional[sqlite3.Connection]:
-    """Connect to the image generation history database."""
+    """Connect to the image generation history database (local)."""
     if not IMAGEGEN_DB_PATH.exists():
         return None
     try:
@@ -1657,88 +1660,191 @@ def _imagegen_db_connect() -> Optional[sqlite3.Connection]:
         return None
 
 
-def _imagegen_get_history(limit: int = 50, offset: int = 0, model: str = "") -> List[Dict]:
-    """Get generation history directly from database."""
-    conn = _imagegen_db_connect()
-    if not conn:
-        return []
-    
+def _imagegen_remote_query(sql: str) -> List[Dict]:
+    """Query the remote node's SQLite database via SSH."""
     try:
-        query = "SELECT * FROM generations"
-        params = []
-        
-        if model:
-            query += " WHERE model = ?"
-            params.append(model)
-        
-        query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
-        
-        cursor = conn.execute(query, params)
-        rows = cursor.fetchall()
-        
-        return [dict(row) for row in rows]
+        cmd = [
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+            IMAGEGEN_REMOTE_NODE,
+            f"sqlite3 -json {IMAGEGEN_REMOTE_PATH}/history.db \"{sql}\""
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0 and result.stdout.strip():
+            return json.loads(result.stdout)
+        return []
     except Exception:
         return []
-    finally:
-        conn.close()
+
+
+def _imagegen_get_history(limit: int = 50, offset: int = 0, model: str = "") -> List[Dict]:
+    """Get generation history from both local and remote databases."""
+    all_results = []
+    
+    # Local database
+    conn = _imagegen_db_connect()
+    if conn:
+        try:
+            query = "SELECT * FROM generations"
+            params = []
+            if model:
+                query += " WHERE model = ?"
+                params.append(model)
+            query += " ORDER BY timestamp DESC"
+            
+            cursor = conn.execute(query, params)
+            for row in cursor.fetchall():
+                record = dict(row)
+                record["_source"] = "local"
+                all_results.append(record)
+        except Exception:
+            pass
+        finally:
+            conn.close()
+    
+    # Remote database
+    where_clause = f"WHERE model = '{model}'" if model else ""
+    remote_sql = f"SELECT * FROM generations {where_clause} ORDER BY timestamp DESC"
+    remote_rows = _imagegen_remote_query(remote_sql)
+    for row in remote_rows:
+        row["_source"] = "remote"
+        all_results.append(row)
+    
+    # Deduplicate by ID (in case of sync) and sort by timestamp
+    seen_ids = set()
+    unique_results = []
+    for r in all_results:
+        if r.get("id") not in seen_ids:
+            seen_ids.add(r.get("id"))
+            unique_results.append(r)
+    
+    # Sort by timestamp descending
+    unique_results.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    
+    # Apply offset/limit
+    return unique_results[offset:offset + limit]
 
 
 def _imagegen_get_stats() -> Dict:
-    """Get generation statistics directly from database."""
-    conn = _imagegen_db_connect()
-    if not conn:
-        return {"total_generations": 0, "by_model": {}}
+    """Get generation statistics from both local and remote databases."""
+    by_model = {}
+    total = 0
     
-    try:
-        # Total count
-        total = conn.execute("SELECT COUNT(*) FROM generations").fetchone()[0]
-        
-        # Stats by model
-        by_model = {}
-        rows = conn.execute("""
-            SELECT model, COUNT(*) as count, AVG(generation_time_ms) as avg_time_ms
-            FROM generations 
-            GROUP BY model
-        """).fetchall()
-        
-        for row in rows:
-            by_model[row["model"]] = {
-                "count": row["count"],
-                "avg_time_ms": row["avg_time_ms"] or 0
-            }
-        
-        return {"total_generations": total, "by_model": by_model}
-    except Exception:
-        return {"total_generations": 0, "by_model": {}}
-    finally:
-        conn.close()
+    # Local database
+    conn = _imagegen_db_connect()
+    if conn:
+        try:
+            total += conn.execute("SELECT COUNT(*) FROM generations").fetchone()[0]
+            rows = conn.execute("""
+                SELECT model, COUNT(*) as count, AVG(generation_time_ms) as avg_time_ms
+                FROM generations GROUP BY model
+            """).fetchall()
+            
+            for row in rows:
+                model = row["model"]
+                if model not in by_model:
+                    by_model[model] = {"count": 0, "total_time": 0}
+                by_model[model]["count"] += row["count"]
+                by_model[model]["total_time"] += (row["avg_time_ms"] or 0) * row["count"]
+        except Exception:
+            pass
+        finally:
+            conn.close()
+    
+    # Remote database
+    remote_rows = _imagegen_remote_query(
+        "SELECT model, COUNT(*) as count, AVG(generation_time_ms) as avg_time_ms FROM generations GROUP BY model"
+    )
+    for row in remote_rows:
+        model = row.get("model")
+        if model:
+            if model not in by_model:
+                by_model[model] = {"count": 0, "total_time": 0}
+            count = row.get("count", 0)
+            avg_time = row.get("avg_time_ms", 0) or 0
+            by_model[model]["count"] += count
+            by_model[model]["total_time"] += avg_time * count
+            total += count
+    
+    # Calculate final averages
+    for model in by_model:
+        count = by_model[model]["count"]
+        by_model[model]["avg_time_ms"] = by_model[model]["total_time"] / count if count > 0 else 0
+        del by_model[model]["total_time"]
+    
+    return {"total_generations": total, "by_model": by_model}
 
 
 def _imagegen_get_metadata(gen_id: str) -> Optional[Dict]:
-    """Get metadata for a specific generation."""
+    """Get metadata for a specific generation from local or remote database."""
+    # Try local first
     conn = _imagegen_db_connect()
-    if not conn:
-        return None
+    if conn:
+        try:
+            cursor = conn.execute("SELECT * FROM generations WHERE id = ?", (gen_id,))
+            row = cursor.fetchone()
+            if row:
+                result = dict(row)
+                result["_source"] = "local"
+                return result
+        except Exception:
+            pass
+        finally:
+            conn.close()
     
-    try:
-        cursor = conn.execute("SELECT * FROM generations WHERE id = ?", (gen_id,))
-        row = cursor.fetchone()
-        return dict(row) if row else None
-    except Exception:
-        return None
-    finally:
-        conn.close()
+    # Try remote
+    remote_rows = _imagegen_remote_query(f"SELECT * FROM generations WHERE id = '{gen_id}'")
+    if remote_rows:
+        result = remote_rows[0]
+        result["_source"] = "remote"
+        return result
+    
+    return None
 
 
 def _imagegen_get_image_path(gen_id: str) -> Optional[Path]:
-    """Get the path to a generated image file."""
-    # Try common extensions
+    """Get the path to a generated image file (local only)."""
+    # Try common extensions and date-based paths
     for ext in [".png", ".jpg", ".jpeg", ".webp"]:
+        # Direct path
         path = IMAGEGEN_STORAGE_DIR / f"{gen_id}{ext}"
         if path.exists():
             return path
+        # Date-based subdirectories
+        for subdir in IMAGEGEN_STORAGE_DIR.iterdir():
+            if subdir.is_dir():
+                path = subdir / f"{gen_id}{ext}"
+                if path.exists():
+                    return path
     return None
+
+
+def _imagegen_get_remote_image(gen_id: str) -> Optional[bytes]:
+    """Fetch image from remote node via SSH."""
+    try:
+        # Find the image on remote
+        find_cmd = [
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+            IMAGEGEN_REMOTE_NODE,
+            f"find {IMAGEGEN_REMOTE_PATH} -name '{gen_id}.*' -type f | head -1"
+        ]
+        result = subprocess.run(find_cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        
+        remote_path = result.stdout.strip()
+        
+        # Fetch the image
+        cat_cmd = [
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+            IMAGEGEN_REMOTE_NODE,
+            f"cat '{remote_path}'"
+        ]
+        result = subprocess.run(cat_cmd, capture_output=True, timeout=30)
+        if result.returncode == 0:
+            return result.stdout
+        return None
+    except Exception:
+        return None
 
 
 def _get_imagegen_status() -> Dict[str, object]:
@@ -2130,16 +2236,20 @@ def imagegen_proxy_image(gen_id: str):
         except Exception:
             pass  # Fall through to direct access
     
-    # Direct file access (works even when service is down)
+    # Try local file access first
     image_path = _imagegen_get_image_path(gen_id)
     if image_path and image_path.exists():
-        # Determine mimetype
         ext = image_path.suffix.lower()
         mimetypes = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
         mimetype = mimetypes.get(ext, "image/png")
         
         with open(image_path, "rb") as f:
             return Response(f.read(), mimetype=mimetype)
+    
+    # Try remote node
+    remote_data = _imagegen_get_remote_image(gen_id)
+    if remote_data:
+        return Response(remote_data, mimetype="image/png")
     
     return jsonify({"success": False, "error": "Image not found"}), 404
 
