@@ -226,7 +226,7 @@ StartLimitIntervalSec=60
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=$INSTALL_DIR
+ReadWritePaths=$INSTALL_DIR /nfs/imagegen
 PrivateTmp=true
 
 # Resource limits
