@@ -2101,6 +2101,18 @@ Tabs.onActivate('imagegen', () => {
 // ============================================================================
 
 let currentAppsLogsApp = null;
+let clusterNodes = [];  // Cached list of cluster nodes
+
+async function appsLoadClusterNodes() {
+  try {
+    const data = await API.get('/apps/nodes');
+    if (data.success && data.nodes) {
+      clusterNodes = data.nodes;
+    }
+  } catch (err) {
+    console.error('Failed to load cluster nodes:', err);
+  }
+}
 
 async function appsRefreshStatus() {
   const container = document.getElementById('apps-container');
@@ -2109,6 +2121,11 @@ async function appsRefreshStatus() {
   container.innerHTML = '<div class="empty-state"><p>Loading apps status...</p></div>';
   
   try {
+    // Load cluster nodes if not loaded yet
+    if (clusterNodes.length === 0) {
+      await appsLoadClusterNodes();
+    }
+    
     const data = await API.get('/apps/status');
     
     if (!data.success) {
@@ -2133,6 +2150,8 @@ function renderAppCard(key, app) {
   const running = app.running;
   const stopped = app.stopped;
   const healthy = app.healthy;
+  const nodeSelectable = app.node_selectable;
+  const currentNode = app.current_node || app.default_node || '';
   
   // Determine status
   let statusClass = 'stopped';
@@ -2166,6 +2185,27 @@ function renderAppCard(key, app) {
     </div>`;
   }
   
+  // Build node selector HTML (only for node-selectable apps)
+  let nodeSelectorHtml = '';
+  if (nodeSelectable && clusterNodes.length > 0) {
+    const nodeOptions = clusterNodes.map(n => 
+      `<option value="${n.name}" ${n.name === currentNode ? 'selected' : ''}>${n.display}</option>`
+    ).join('');
+    nodeSelectorHtml = `
+      <div class="app-info-item app-node-selector">
+        <span class="app-info-label">Deploy Node</span>
+        <select id="node-select-${key}" class="app-node-select" onchange="appSetNode('${key}', this.value)">
+          ${nodeOptions}
+        </select>
+      </div>`;
+  } else if (currentNode) {
+    nodeSelectorHtml = `
+      <div class="app-info-item">
+        <span class="app-info-label">Node</span>
+        <span class="app-info-value">${currentNode}</span>
+      </div>`;
+  }
+  
   return `
     <div class="app-card ${!deployed ? 'not-deployed' : ''}">
       <div class="app-card-header">
@@ -2186,6 +2226,7 @@ function renderAppCard(key, app) {
             <span class="app-info-label">Service Type</span>
             <span class="app-info-value">${app.service_type || 'N/A'}</span>
           </div>
+          ${nodeSelectorHtml}
         </div>
         ${endpointHtml}
       </div>
@@ -2193,7 +2234,7 @@ function renderAppCard(key, app) {
         ${deployed ? 
           (running || (app.replicas > 0 && !stopped)) ? 
             `<button class="ops-btn warning sm" onclick="appStop('${key}')">⏹ Stop</button>` :
-            `<button class="ops-btn success sm" onclick="appStart('${key}')">▶ Start</button>`
+            `<button class="ops-btn success sm" onclick="appStartWithNode('${key}')">▶ Start</button>`
           : `<button class="ops-btn gpu sm" onclick="appDeploy('${key}')">🚀 Deploy</button>`
         }
         <button class="ops-btn secondary sm" onclick="appRestart('${key}')" ${!deployed || stopped ? 'disabled' : ''}>🔄</button>
@@ -2204,12 +2245,34 @@ function renderAppCard(key, app) {
   `;
 }
 
-async function appStart(appName) {
-  Toast.info(`Starting ${appName}...`);
+async function appStart(appName, targetNode = null) {
+  const nodeMsg = targetNode ? ` on ${targetNode}` : '';
+  Toast.info(`Starting ${appName}${nodeMsg}...`);
   try {
-    const data = await API.post(`/apps/${appName}/start`);
+    const payload = targetNode ? { node: targetNode } : {};
+    const data = await API.post(`/apps/${appName}/start`, payload);
     Toast.show(data.message || (data.success ? 'Started' : 'Failed'), data.success ? 'success' : 'error');
     setTimeout(appsRefreshStatus, 2000);
+  } catch (err) {
+    Toast.error(`Error: ${err}`);
+  }
+}
+
+async function appStartWithNode(appName) {
+  // Get the selected node from the dropdown if it exists
+  const nodeSelect = document.getElementById(`node-select-${appName}`);
+  const targetNode = nodeSelect ? nodeSelect.value : null;
+  await appStart(appName, targetNode);
+}
+
+async function appSetNode(appName, targetNode) {
+  Toast.info(`Setting ${appName} to deploy on ${targetNode}...`);
+  try {
+    const data = await API.post(`/apps/${appName}/set-node`, { node: targetNode });
+    Toast.show(data.message || (data.success ? 'Node updated' : 'Failed'), data.success ? 'success' : 'error');
+    if (data.success) {
+      setTimeout(appsRefreshStatus, 1000);
+    }
   } catch (err) {
     Toast.error(`Error: ${err}`);
   }
@@ -2306,6 +2369,8 @@ Tabs.onActivate('apps', () => {
 // Export global functions
 window.appsRefreshStatus = appsRefreshStatus;
 window.appStart = appStart;
+window.appStartWithNode = appStartWithNode;
+window.appSetNode = appSetNode;
 window.appStop = appStop;
 window.appRestart = appRestart;
 window.appDeploy = appDeploy;

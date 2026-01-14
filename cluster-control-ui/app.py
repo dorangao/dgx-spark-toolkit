@@ -2688,6 +2688,12 @@ def imagegen_proxy_image_metadata(gen_id: str):
 # Apps configuration - deployments in the 'apps' namespace
 APPS_NAMESPACE = "apps"
 
+# Available cluster nodes for scheduling
+CLUSTER_NODES = [
+    {"name": "spark-2959", "display": "spark-2959 (Control)"},
+    {"name": "spark-ba63", "display": "spark-ba63 (Worker)"},
+]
+
 MANAGED_APPS = {
     "ollama": {
         "display_name": "Ollama",
@@ -2699,6 +2705,8 @@ MANAGED_APPS = {
         "external_ip": "192.168.86.201",
         "port": 11434,
         "health_endpoint": "/api/tags",
+        "node_selectable": True,  # Allow node selection
+        "default_node": "spark-2959",
     },
     "openwebui": {
         "display_name": "Open WebUI",
@@ -2710,6 +2718,8 @@ MANAGED_APPS = {
         "external_ip": "192.168.86.200",
         "port": 8080,
         "health_endpoint": "/",
+        "node_selectable": True,
+        "default_node": "spark-ba63",
     },
     "comfyui": {
         "display_name": "ComfyUI",
@@ -2721,6 +2731,8 @@ MANAGED_APPS = {
         "external_ip": "192.168.86.206",
         "port": 8188,
         "health_endpoint": "/",
+        "node_selectable": True,  # Allow node selection
+        "default_node": "spark-2959",
     },
     "comfyui-model-manager": {
         "display_name": "ComfyUI Model Manager",
@@ -2732,6 +2744,8 @@ MANAGED_APPS = {
         "external_ip": "192.168.86.207",
         "port": 5000,
         "health_endpoint": "/",
+        "node_selectable": False,  # Tied to comfyui storage
+        "default_node": "spark-2959",
     },
 }
 
@@ -2766,6 +2780,11 @@ def _get_app_deployment_status(app_name: str) -> dict:
         ready_replicas = status.get("readyReplicas", 0)
         available_replicas = status.get("availableReplicas", 0)
         
+        # Get current node selector
+        pod_spec = spec.get("template", {}).get("spec", {})
+        node_selector = pod_spec.get("nodeSelector", {})
+        current_node = node_selector.get("kubernetes.io/hostname", "")
+        
         return {
             "name": app_name,
             "deployed": True,
@@ -2774,6 +2793,7 @@ def _get_app_deployment_status(app_name: str) -> dict:
             "available_replicas": available_replicas,
             "running": ready_replicas > 0 and ready_replicas >= replicas,
             "stopped": replicas == 0,
+            "current_node": current_node,
         }
     except Exception as e:
         return {"name": app_name, "deployed": False, "error": str(e)}
@@ -2929,9 +2949,18 @@ def app_scale(app_name: str):
         return jsonify({"success": False, "error": str(e)})
 
 
+@app.route("/apps/nodes", methods=["GET"])
+def apps_list_nodes():
+    """List available cluster nodes for app deployment."""
+    return jsonify({
+        "success": True,
+        "nodes": CLUSTER_NODES,
+    })
+
+
 @app.route("/apps/<app_name>/start", methods=["POST"])
 def app_start(app_name: str):
-    """Start an app (scale to 1)."""
+    """Start an app (scale to 1), optionally on a specific node."""
     if app_name not in MANAGED_APPS:
         return jsonify({"success": False, "error": f"Unknown app: {app_name}"}), 404
     
@@ -2939,17 +2968,108 @@ def app_start(app_name: str):
     ns = app_config["namespace"]
     deployment = app_config["deployment"]
     
+    # Check if node selection was requested
+    data = request.get_json() or {}
+    target_node = data.get("node")
+    
     try:
+        # If a target node is specified and app supports node selection, patch the deployment
+        if target_node and app_config.get("node_selectable"):
+            patch_data = {
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "nodeSelector": {
+                                "kubernetes.io/hostname": target_node
+                            }
+                        }
+                    }
+                }
+            }
+            patch_result = subprocess.run(
+                ["kubectl", "patch", "deployment", deployment, "-n", ns,
+                 "--type=strategic", "-p", json.dumps(patch_data)],
+                capture_output=True, text=True, timeout=30
+            )
+            if patch_result.returncode != 0:
+                return jsonify({
+                    "success": False,
+                    "message": f"Failed to set node: {patch_result.stderr}",
+                })
+        
+        # Scale to 1
         result = subprocess.run(
             ["kubectl", "scale", "deployment", deployment, "-n", ns, "--replicas=1"],
             capture_output=True, text=True, timeout=30
         )
         
-        success = result.returncode == 0
+        msg = f"Started {app_name}"
+        if target_node:
+            msg += f" on {target_node}"
+        
         return jsonify({
-            "success": success,
-            "message": f"Started {app_name}" if success else result.stderr,
+            "success": result.returncode == 0,
+            "message": msg if result.returncode == 0 else result.stderr,
         })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/apps/<app_name>/set-node", methods=["POST"])
+def app_set_node(app_name: str):
+    """Change the node selector for an app deployment."""
+    if app_name not in MANAGED_APPS:
+        return jsonify({"success": False, "error": f"Unknown app: {app_name}"}), 404
+    
+    app_config = MANAGED_APPS[app_name]
+    
+    if not app_config.get("node_selectable"):
+        return jsonify({"success": False, "error": f"{app_name} does not support node selection"}), 400
+    
+    ns = app_config["namespace"]
+    deployment = app_config["deployment"]
+    
+    data = request.get_json() or {}
+    target_node = data.get("node")
+    
+    if not target_node:
+        return jsonify({"success": False, "error": "No node specified"}), 400
+    
+    # Validate node exists in our list
+    valid_nodes = [n["name"] for n in CLUSTER_NODES]
+    if target_node not in valid_nodes:
+        return jsonify({"success": False, "error": f"Invalid node: {target_node}"}), 400
+    
+    try:
+        # Patch the deployment with new nodeSelector
+        patch_data = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "nodeSelector": {
+                            "kubernetes.io/hostname": target_node
+                        }
+                    }
+                }
+            }
+        }
+        
+        result = subprocess.run(
+            ["kubectl", "patch", "deployment", deployment, "-n", ns,
+             "--type=strategic", "-p", json.dumps(patch_data)],
+            capture_output=True, text=True, timeout=30
+        )
+        
+        if result.returncode == 0:
+            return jsonify({
+                "success": True,
+                "message": f"Set {app_name} to deploy on {target_node}",
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": result.stderr.strip() if result.stderr else "Patch failed",
+            })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 

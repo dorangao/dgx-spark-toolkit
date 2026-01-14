@@ -1447,6 +1447,37 @@ code {
   background: var(--panel-muted);
 }
 
+/* Node selector in app cards */
+.app-node-selector {
+  grid-column: span 2;
+}
+
+.app-node-select {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.app-node-select:hover {
+  border-color: var(--accent);
+}
+
+.app-node-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.app-info-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
 /* --------------------------------------------------------------------------
    Namespace Filter Toggles
    -------------------------------------------------------------------------- */

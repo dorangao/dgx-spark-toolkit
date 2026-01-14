@@ -48,7 +48,7 @@ spec:
   storageClassName: longhorn
   resources:
     requests:
-      storage: 100Gi
+      storage: 300Gi
 ---
 # =============================================================================
 # Ollama - Local LLM Inference Server
@@ -179,13 +179,15 @@ spec:
         app: comfyui
     spec:
       runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: spark-2959
       initContainers:
         - name: comfyui-init
           image: busybox:1.36
           command:
             - sh
             - -c
-            - mkdir -p /storage/models /storage/custom_nodes /storage/input /storage/output
+            - mkdir -p /storage/models /storage/custom_nodes /storage/input /storage/output /storage/user
           volumeMounts:
             - name: comfyui-storage
               mountPath: /storage
@@ -217,6 +219,9 @@ spec:
             - name: comfyui-storage
               mountPath: /workspace/ComfyUI/output
               subPath: output
+            - name: comfyui-storage
+              mountPath: /workspace/ComfyUI/user
+              subPath: user
       volumes:
         - name: comfyui-storage
           persistentVolumeClaim:
@@ -257,6 +262,8 @@ spec:
       labels:
         app: comfyui-model-manager
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: spark-2959
       containers:
         - name: model-manager
           image: comfyui-model-manager:latest
