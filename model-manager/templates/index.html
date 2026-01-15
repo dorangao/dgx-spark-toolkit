@@ -4,23 +4,65 @@
   <meta charset="UTF-8" />
   <title>ComfyUI Model Manager</title>
   <style>
-    body { font-family: sans-serif; margin: 2rem; background: #f7f7f9; }
-    h1 { margin-bottom: 0.2rem; }
-    table { width: 100%; border-collapse: collapse; margin-top: 1rem; background: #fff; }
-    th, td { padding: 0.5rem 0.7rem; border-bottom: 1px solid #ddd; text-align: left; }
-    th { background: #fafafa; font-size: 0.9rem; }
+    :root {
+      color-scheme: light;
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --muted: #667085;
+      --text: #0f172a;
+      --border: #e2e8f0;
+      --primary: #2563eb;
+      --danger: #dc2626;
+      --success-bg: #dcfce7;
+      --success-text: #166534;
+      --error-bg: #fee2e2;
+      --error-text: #991b1b;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: "Inter", system-ui, sans-serif; margin: 2rem; background: var(--bg); color: var(--text); }
+    h1 { margin-bottom: 0.2rem; font-size: 1.7rem; }
+    h2 { margin-top: 0; }
+    small { color: var(--muted); }
     form.inline { display: inline; }
-    .card { background: #fff; padding: 1rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .card { background: var(--panel); padding: 1.1rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06); border: 1px solid var(--border); }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
-    label { display: block; font-size: 0.85rem; margin-top: 0.5rem; }
-    input[type="text"], input[type="url"], select { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
-    button { padding: 0.4rem 0.8rem; border: none; border-radius: 4px; cursor: pointer; }
-    button.primary { background: #2563eb; color: white; }
-    button.danger { background: #dc2626; color: white; }
-    .alert { margin-top: 1rem; padding: 0.8rem; border-radius: 6px; }
-    .alert.success { background: #dcfce7; color: #166534; }
-    .alert.error { background: #fee2e2; color: #991b1b; }
-    small { color: #666; }
+    label { display: block; font-size: 0.85rem; margin-top: 0.6rem; color: var(--muted); }
+    input[type="text"], input[type="url"], select { width: 100%; padding: 0.55rem 0.65rem; border: 1px solid var(--border); border-radius: 8px; }
+    button { padding: 0.45rem 0.9rem; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    button.primary { background: var(--primary); color: white; }
+    button.danger { background: var(--danger); color: white; }
+    button.ghost { background: #f1f5f9; color: #0f172a; }
+    .alert { margin-top: 1rem; padding: 0.8rem; border-radius: 8px; }
+    .alert.success { background: var(--success-bg); color: var(--success-text); }
+    .alert.error { background: var(--error-bg); color: var(--error-text); }
+    .section { margin-top: 1.5rem; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-top: 0.5rem; }
+    .toolbar .field { display: flex; flex-direction: column; min-width: 180px; }
+    .tree { background: var(--panel); border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
+    .tree-header, .tree-row {
+      display: grid;
+      grid-template-columns: minmax(280px, 3fr) minmax(110px, 0.8fr) minmax(140px, 1fr) minmax(120px, 0.7fr);
+      gap: 0.75rem;
+      align-items: center;
+      padding: 0.6rem 0.9rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .tree-header { background: #f8fafc; font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .tree-row:last-child { border-bottom: none; }
+    .tree-name { display: flex; align-items: center; gap: 0.4rem; font-weight: 500; }
+    .tree-row.folder { background: #f8fafc; font-weight: 600; }
+    .toggle { border: none; background: transparent; cursor: pointer; font-size: 1rem; width: 1.2rem; }
+    .indent { width: 1rem; display: inline-block; }
+    .muted { color: var(--muted); font-size: 0.85rem; }
+    .progress { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+    .progress-bar { height: 100%; background: var(--primary); transition: width 0.2s ease; }
+    .progress-bar.indeterminate { width: 45%; animation: shimmer 1.2s ease-in-out infinite; }
+    @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
+    .download-item { border-bottom: 1px solid var(--border); padding: 0.6rem 0; }
+    .download-item:last-child { border-bottom: none; }
+    .status-pill { padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: #e2e8f0; color: #334155; }
+    .status-pill.completed { background: #dcfce7; color: #166534; }
+    .status-pill.failed { background: #fee2e2; color: #991b1b; }
   </style>
 </head>
 <body>
@@ -34,10 +76,10 @@
     <div class="alert error">{{ error }}</div>
   {% endif %}
 
-  <div class="grid">
+  <div class="grid section">
     <div class="card">
       <h2>Download model</h2>
-      <form method="post" action="/download">
+      <form id="download-form" method="post" action="/download">
         <label>Source URL</label>
         <input type="url" name="url" placeholder="https://.../model.safetensors" required />
 
@@ -59,6 +101,7 @@
 
         <button class="primary" type="submit">Download</button>
       </form>
+      <div id="download-message" class="muted" style="margin-top: 0.6rem;"></div>
     </div>
 
     <div class="card">
@@ -68,37 +111,266 @@
         <button class="primary" type="submit">Refresh list</button>
       </form>
     </div>
+
+    <div class="card">
+      <h2>Active downloads</h2>
+      <div id="download-list" class="muted">No active downloads.</div>
+    </div>
   </div>
 
-  <h2>Stored models ({{ entries|length }})</h2>
-  {% if entries %}
-    <table>
-      <thead>
-        <tr>
-          <th>Path</th>
-          <th>Size</th>
-          <th>Last modified</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for entry in entries %}
-          <tr>
-            <td>{{ entry.relative_path }}</td>
-            <td>{{ entry.size_human }}</td>
-            <td>{{ entry.modified }}</td>
-            <td>
-              <form class="inline" method="post" action="/delete" onsubmit="return confirm('Delete {{ entry.relative_path }}?');">
-                <input type="hidden" name="path" value="{{ entry.relative_path }}" />
-                <button class="danger" type="submit">Delete</button>
-              </form>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p>No models stored yet.</p>
-  {% endif %}
+  <div class="section">
+    <h2>Stored models ({{ entries|length }})</h2>
+    {% if entries %}
+      <div class="toolbar">
+        <div class="field">
+          <label for="sort-key">Sort by</label>
+          <select id="sort-key">
+            <option value="name">Name</option>
+            <option value="size">Size</option>
+            <option value="modified">Last modified</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sort-dir">Order</label>
+          <select id="sort-dir">
+            <option value="asc">Ascending</option>
+            <option value="desc">Descending</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <div>
+            <button class="ghost" id="expand-all" type="button">Expand all</button>
+            <button class="ghost" id="collapse-all" type="button">Collapse all</button>
+          </div>
+        </div>
+      </div>
+      <div class="tree section">
+        <div class="tree-header">
+          <div>Path</div>
+          <div>Size</div>
+          <div>Last modified</div>
+          <div>Action</div>
+        </div>
+        <div id="tree-body"></div>
+      </div>
+    {% else %}
+      <p>No models stored yet.</p>
+    {% endif %}
+  </div>
+
+  <script>
+    const entries = {{ entries_payload|tojson }};
+    const treeBody = document.getElementById("tree-body");
+    const expanded = new Set();
+    const sortKeySelect = document.getElementById("sort-key");
+    const sortDirSelect = document.getElementById("sort-dir");
+
+    function humanSize(bytes) {
+      const units = ["B", "KB", "MB", "GB", "TB"];
+      let value = Number(bytes);
+      let idx = 0;
+      while (value >= 1024 && idx < units.length - 1) {
+        value /= 1024;
+        idx += 1;
+      }
+      return `${value.toFixed(1)} ${units[idx]}`;
+    }
+
+    function buildTree() {
+      const root = { name: "", folders: {}, files: [] };
+      entries.forEach((entry) => {
+        const parts = entry.relative_path.split("/");
+        let node = root;
+        for (let i = 0; i < parts.length; i += 1) {
+          const part = parts[i];
+          if (i === parts.length - 1) {
+            node.files.push({ ...entry, name: part });
+          } else {
+            node.folders[part] = node.folders[part] || { name: part, folders: {}, files: [] };
+            node = node.folders[part];
+          }
+        }
+      });
+      return root;
+    }
+
+    function folderSize(node) {
+      let total = 0;
+      node.files.forEach((file) => { total += file.size_bytes; });
+      Object.values(node.folders).forEach((child) => { total += folderSize(child); });
+      return total;
+    }
+
+    function sortedFiles(files) {
+      const key = sortKeySelect.value;
+      const dir = sortDirSelect.value === "asc" ? 1 : -1;
+      return [...files].sort((a, b) => {
+        if (key === "size") return dir * (a.size_bytes - b.size_bytes);
+        if (key === "modified") return dir * (a.modified_ts - b.modified_ts);
+        return dir * a.name.localeCompare(b.name);
+      });
+    }
+
+    function renderNode(node, container, depth, parentPath) {
+      const folderNames = Object.keys(node.folders).sort();
+      folderNames.forEach((name) => {
+        const child = node.folders[name];
+        const currentPath = parentPath ? `${parentPath}/${name}` : name;
+        const isExpanded = expanded.has(currentPath);
+        const row = document.createElement("div");
+        row.className = "tree-row folder";
+        row.innerHTML = `
+          <div class="tree-name" style="padding-left:${depth * 16}px;">
+            <button class="toggle" aria-label="toggle">${isExpanded ? "▾" : "▸"}</button>
+            <span>${name}</span>
+            <span class="muted">(${Object.keys(child.folders).length + child.files.length})</span>
+          </div>
+          <div>${humanSize(folderSize(child))}</div>
+          <div class="muted">-</div>
+          <div class="muted">-</div>
+        `;
+        row.querySelector(".toggle").addEventListener("click", () => {
+          if (isExpanded) {
+            expanded.delete(currentPath);
+          } else {
+            expanded.add(currentPath);
+          }
+          renderTree();
+        });
+        container.appendChild(row);
+        if (isExpanded) {
+          renderNode(child, container, depth + 1, currentPath);
+        }
+      });
+
+      const files = sortedFiles(node.files);
+      files.forEach((file) => {
+        const row = document.createElement("div");
+        row.className = "tree-row";
+        row.innerHTML = `
+          <div class="tree-name" style="padding-left:${(depth + 1) * 16}px;"><span>${file.name}</span></div>
+          <div>${file.size_human}</div>
+          <div>${file.modified}</div>
+          <div></div>
+        `;
+        const actionCell = row.querySelector("div:last-child");
+        const form = document.createElement("form");
+        form.method = "post";
+        form.action = "/delete";
+        form.className = "inline";
+        form.onsubmit = () => confirm(`Delete ${file.relative_path}?`);
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "path";
+        input.value = file.relative_path;
+        const button = document.createElement("button");
+        button.type = "submit";
+        button.className = "danger";
+        button.textContent = "Delete";
+        form.appendChild(input);
+        form.appendChild(button);
+        actionCell.appendChild(form);
+        container.appendChild(row);
+      });
+    }
+
+    function renderTree() {
+      if (!treeBody) return;
+      treeBody.innerHTML = "";
+      const tree = buildTree();
+      renderNode(tree, treeBody, 0, "");
+    }
+
+    if (treeBody) {
+      Object.keys(buildTree().folders).forEach((name) => expanded.add(name));
+      renderTree();
+      sortKeySelect.addEventListener("change", renderTree);
+      sortDirSelect.addEventListener("change", renderTree);
+      document.getElementById("expand-all").addEventListener("click", () => {
+        const walk = (node, base) => {
+          Object.keys(node.folders).forEach((folderName) => {
+            const path = base ? `${base}/${folderName}` : folderName;
+            expanded.add(path);
+            walk(node.folders[folderName], path);
+          });
+        };
+        expanded.clear();
+        walk(buildTree(), "");
+        renderTree();
+      });
+      document.getElementById("collapse-all").addEventListener("click", () => {
+        expanded.clear();
+        renderTree();
+      });
+    }
+
+    const downloadForm = document.getElementById("download-form");
+    const downloadMessage = document.getElementById("download-message");
+    const downloadList = document.getElementById("download-list");
+    let downloadTimer = null;
+
+    async function refreshDownloads() {
+      if (!downloadList) return;
+      try {
+        const response = await fetch("/download-status");
+        if (!response.ok) return;
+        const items = await response.json();
+        if (!items.length) {
+          downloadList.textContent = "No active downloads.";
+          return;
+        }
+        const sorted = items.sort((a, b) => b.updated - a.updated).slice(0, 10);
+        downloadList.innerHTML = "";
+        sorted.forEach((item) => {
+          const wrapper = document.createElement("div");
+          wrapper.className = "download-item";
+          const percent = item.total ? Math.min(100, (item.downloaded / item.total) * 100) : 0;
+          const barClass = item.total ? "progress-bar" : "progress-bar indeterminate";
+          wrapper.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+              <div>
+                <div style="font-weight:600;">${item.path}</div>
+                <div class="muted">${humanSize(item.downloaded)}${item.total ? ` / ${humanSize(item.total)}` : ""}</div>
+              </div>
+              <span class="status-pill ${item.state}">${item.state}</span>
+            </div>
+            <div class="progress" style="margin-top:0.4rem;">
+              <div class="${barClass}" style="width:${percent}%;"></div>
+            </div>
+            ${item.error ? `<div class="muted" style="margin-top:0.4rem;color:#b91c1c;">${item.error}</div>` : ""}
+          `;
+          downloadList.appendChild(wrapper);
+        });
+      } catch (err) {
+        downloadList.textContent = "Unable to load downloads.";
+      }
+    }
+
+    if (downloadForm) {
+      downloadForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        downloadMessage.textContent = "Starting download...";
+        const formData = new FormData(downloadForm);
+        const response = await fetch("/download", { method: "POST", body: formData });
+        if (response.ok) {
+          const data = await response.json();
+          downloadMessage.textContent = `Download queued: ${data.path}`;
+          refreshDownloads();
+          if (!downloadTimer) {
+            downloadTimer = setInterval(refreshDownloads, 2000);
+          }
+        } else {
+          const error = await response.json().catch(() => ({}));
+          downloadMessage.textContent = error.detail || "Failed to start download.";
+        }
+      });
+    }
+
+    refreshDownloads();
+    if (!downloadTimer) {
+      downloadTimer = setInterval(refreshDownloads, 3000);
+    }
+  </script>
 </body>
 </html>
